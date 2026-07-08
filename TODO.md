@@ -26,9 +26,12 @@
 
 ## Spiking Network Research
 
+- Keep SNN encoder/training/export code separate from the transformer/NoseLLM path while reusing the same CSV datasets.
 - Explore whether the sensor time series can be represented as spike trains.
+- Use `cargo run --bin spikes` to inspect rate, latency, and mixed spike-train encodings on existing CSV captures.
+- Improve `cargo run --bin snn_train` beyond the current linear-initialized fixed-point LIF fine-tuning scaffold.
 - Compare simple rate coding, threshold-crossing events, and delta-based event coding.
-- Prototype a small spiking neural network (SNN) classifier after real captures exist.
+- Re-evaluate the SNN classifier once real repeated captures exist.
 - Evaluate SNN fit for ESP32-class inference: memory footprint, integer arithmetic, event sparsity, latency, and implementation complexity.
 - Treat SNN work as exploratory until it beats or meaningfully simplifies the tiny transformer/baseline path.
 

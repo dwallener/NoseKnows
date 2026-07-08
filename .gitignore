@@ -19,3 +19,6 @@
 # Local training artifacts
 /data/models/*
 !/data/models/.gitkeep
+
+# Local visualization artifacts
+/data/*.svg

@@ -16,6 +16,12 @@ NoseKnows currently models one fragrance exposure per capture. A capture is expe
 
 The current system does not attempt overlapping scent separation, continuous room-state tracking, source attribution, or real-time classification of multiple simultaneous fragrances. Designer-style synthetic captures may include top, heart, and base note phases, but those phases are treated as the evolution of one fragrance sample, not separate overlapping scents.
 
+## Training Architecture
+
+All training experiments use the same captured CSV dataset shape under `data/raw/`. The transformer/NoseLLM path and the spiking neural network path should remain separate implementations with separate model artifacts.
+
+The transformer path consumes downsampled analog time series and writes model files under `data/models/`. The SNN path should consume the same CSV captures through the spike encoder, then train/export separate SNN parameters for fixed-point inference. Shared data, separate training code.
+
 ## Wheel Demo
 
 Run the default random demo:
@@ -232,11 +238,67 @@ validation primary-label top-1: 92.5%
 validation any-label top-3:     100%
 ```
 
+## Spike Train Preview
+
+Generate a self-contained SVG preview of spike encodings for one captured or synthetic CSV:
+
+```sh
+cargo run --bin spikes -- --input data/raw/synthetic_0000.csv --out data/spikes.svg --model data/models/snn_lif.nsm --bins 180 --subslots 5 --rate-budget 5 --latency-budget 5
+```
+
+The preview renders input spike-train panels over the same 9 ADC channels, then runs the mixed input stream through the saved SNN LIF model and renders the final 14 fragrance output spike trains:
+
+```text
+pure latency  positive dV/dt maps to quantized sub-sample latency slots
+pure rate     log-scaled amplitude emits up to the rate budget per sample
+mixed         the union of rate events and latency events overlaid in one panel
+final layer   14 SNN output spike trains, one per fragrance-wheel label
+```
+
+The visualizer now uses an event-list model instead of a boolean raster. With the default `5` subslots, latency is quantized into 20% buckets within each binned sample period. With the default `rate-budget=5` and `latency-budget=5`, each channel can emit up to `10` events per binned sample, or `90` total events across the 9-channel sensor package.
+
+This is an exploratory visualization for possible spiking-network work. It is not yet a classifier and does not change the current single-fragrance capture training path.
+
+## SNN Training
+
+Train the first separate fixed-point LIF SNN scaffold:
+
+```sh
+cargo run --bin snn_train -- --data data/raw --out data/models/snn_lif.nsm --epochs 250
+```
+
+The SNN trainer uses the same CSV files as the transformer path, but it does not share training code or model artifacts. It spike-encodes the active sensor channels into 16 input streams:
+
+```text
+inputs 0..7   rate streams for active sensors adc0..adc7
+inputs 8..15  latency streams for active sensors adc0..adc7
+```
+
+Those 16 streams drive a direct 14-output fixed-point leaky integrate-and-fire bank, one output neuron per fragrance-wheel label. The saved `.nsm` file records the integer weight matrix and encoder constants for later firmware/export work.
+
+Training is deliberately separate from the transformer path. The current SNN scaffold trains in two stages:
+
+```text
+1. train a multilabel linear model on spike-count features
+2. initialize and fine-tune the integer LIF bank, keeping the best validation checkpoint
+```
+
+By default, SNN training excludes `designer_*` complex phased captures and uses the simpler matrix-style samples. To include designer captures later:
+
+```sh
+cargo run --bin snn_train -- --data data/raw --out data/models/snn_lif.nsm --epochs 250 --include-designer
+```
+
+This is currently a scaffold, not the final SNN training method. Its purpose is to separate spike-encoding quality from LIF-bank behavior while preserving an ESP32-friendly fixed-point inference target.
+
 Current status:
 
 - Real collector path is working and writes training-shaped CSV files.
 - The current learning problem is constrained to one fragrance exposure per capture.
+- Transformer and SNN experiments share datasets but stay separate in code and model artifacts.
 - Synthetic captures let us test the full train/infer loop without claiming real-world scent accuracy.
 - The current model consumes one `32 x 9` downsampled time series per CSV and predicts the top 3 of the 14 fragrance-wheel labels.
 - The present trainer is intentionally simple and CPU-only; it is a scaffolding step before a real autograd-backed Rust implementation.
 - Training quality is now measured with a validation split and a simple baseline before we invest in end-to-end transformer backpropagation.
+- Spike-train previews are available for rate, latency, and mixed encodings as an exploratory SNN input view.
+- SNN training now has a separate first-pass fixed-point LIF scaffold over the same CSV dataset format.
