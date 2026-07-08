@@ -11,3 +11,11 @@
 
 # Local runtime logs
 *.log
+
+# Local sensor captures
+/data/raw/*.csv
+!/data/raw/.gitkeep
+
+# Local training artifacts
+/data/models/*
+!/data/models/.gitkeep
