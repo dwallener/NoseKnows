@@ -225,10 +225,10 @@ cargo run --bin quality -- --data data/raw --epochs 250 --validation 0.2
 
 The quality runner trains a plain logistic baseline on summary features from each 9-channel capture, then reports train/validation loss, primary-label top-1 accuracy, and any-label top-3 accuracy. This is a guardrail: if the baseline cannot learn the synthetic data, the data generator or labels are suspect; if the baseline can learn but the tiny transformer scaffold cannot, the transformer/training loop is the weak link.
 
-With 100 numeric-matrix captures, 100 designer-phase captures, and the current one-off raw test capture, the quality baseline currently reaches about:
+With 100 numeric-matrix captures and 100 designer-phase captures, the quality baseline currently reaches about:
 
 ```text
-validation primary-label top-1: 90%
+validation primary-label top-1: 92.5%
 validation any-label top-3:     100%
 ```
 
