@@ -64,6 +64,9 @@ struct TrainConfig {
     predict_path: Option<PathBuf>,
     epochs: usize,
     learning_rate: f32,
+    full_model: bool,
+    full_learning_rate: f32,
+    perturbation: f32,
     seed: u64,
 }
 
@@ -99,9 +102,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rng = Lcg::new(config.seed);
     let mut model = TinyTransformer::new(&mut rng);
+    let mut params = model.to_params();
+
+    if config.full_model {
+        println!(
+            "Training mode: full model SPSA over {} parameters",
+            params.len()
+        );
+    } else {
+        println!(
+            "Training mode: output head only over {} parameters",
+            head_param_count()
+        );
+    }
 
     for epoch in 1..=config.epochs {
-        train_output_head_epoch(&mut model, &samples, config.learning_rate);
+        if config.full_model {
+            train_output_head_epoch(&mut model, &samples, config.learning_rate);
+            params = model.to_params();
+            train_full_model_spsa_epoch(
+                &mut model,
+                &mut params,
+                &samples,
+                &mut rng,
+                config.full_learning_rate,
+                config.perturbation,
+            );
+        } else {
+            train_output_head_epoch(&mut model, &samples, config.learning_rate);
+        }
+
         let loss = dataset_loss(&model, &samples);
         if epoch == 1 || epoch == config.epochs || epoch % 10 == 0 {
             println!("epoch {epoch:>4} loss {loss:.5}");
@@ -141,6 +171,9 @@ fn parse_args() -> Result<TrainConfig, Box<dyn std::error::Error>> {
     let mut predict_path = None;
     let mut epochs = 100;
     let mut learning_rate = 0.08;
+    let mut full_model = false;
+    let mut full_learning_rate = 0.004;
+    let mut perturbation = 0.02;
     let mut seed = 0x5eed_1234_u64;
 
     let args: Vec<String> = env::args().skip(1).collect();
@@ -176,6 +209,23 @@ fn parse_args() -> Result<TrainConfig, Box<dyn std::error::Error>> {
                 index += 1;
                 learning_rate = args.get(index).ok_or("--lr requires a value")?.parse()?;
             }
+            "--full-model" => {
+                full_model = true;
+            }
+            "--full-lr" => {
+                index += 1;
+                full_learning_rate = args
+                    .get(index)
+                    .ok_or("--full-lr requires a value")?
+                    .parse()?;
+            }
+            "--perturbation" => {
+                index += 1;
+                perturbation = args
+                    .get(index)
+                    .ok_or("--perturbation requires a value")?
+                    .parse()?;
+            }
             "--seed" => {
                 index += 1;
                 seed = args.get(index).ok_or("--seed requires a value")?.parse()?;
@@ -196,6 +246,9 @@ fn parse_args() -> Result<TrainConfig, Box<dyn std::error::Error>> {
         predict_path,
         epochs,
         learning_rate,
+        full_model,
+        full_learning_rate,
+        perturbation,
         seed,
     })
 }
@@ -203,6 +256,9 @@ fn parse_args() -> Result<TrainConfig, Box<dyn std::error::Error>> {
 fn print_usage() {
     println!(
         "Usage: cargo run --bin train -- [--data data/raw] [--out data/models/tiny_transformer.ntm] [--epochs 100] [--lr 0.08]"
+    );
+    println!(
+        "       cargo run --bin train -- --data data/raw --out data/models/full_transformer.ntm --full-model --epochs 200"
     );
     println!(
         "       cargo run --bin train -- --model data/models/tiny_transformer.ntm --predict data/raw/sample.csv"
@@ -654,6 +710,45 @@ fn train_output_head_epoch(model: &mut TinyTransformer, samples: &[Sample], lear
             }
         }
     }
+}
+
+fn train_full_model_spsa_epoch(
+    model: &mut TinyTransformer,
+    params: &mut [f32],
+    samples: &[Sample],
+    rng: &mut Lcg,
+    learning_rate: f32,
+    perturbation: f32,
+) {
+    let delta = (0..params.len())
+        .map(|_| if rng.next_f32() < 0.5 { -1.0 } else { 1.0 })
+        .collect::<Vec<_>>();
+
+    let mut plus = params.to_vec();
+    let mut minus = params.to_vec();
+    for ((plus_value, minus_value), delta_value) in
+        plus.iter_mut().zip(minus.iter_mut()).zip(delta.iter())
+    {
+        *plus_value += perturbation * delta_value;
+        *minus_value -= perturbation * delta_value;
+    }
+
+    model.load_params(&plus);
+    let plus_loss = dataset_loss(model, samples);
+    model.load_params(&minus);
+    let minus_loss = dataset_loss(model, samples);
+    let gradient_scale = (plus_loss - minus_loss) / (2.0 * perturbation);
+
+    for (param, delta_value) in params.iter_mut().zip(delta.iter()) {
+        *param -= learning_rate * gradient_scale * delta_value;
+        *param = param.clamp(-4.0, 4.0);
+    }
+
+    model.load_params(params);
+}
+
+fn head_param_count() -> usize {
+    D_MODEL * LABELS.len() + LABELS.len()
 }
 
 fn save_model(path: &Path, params: &[f32]) -> io::Result<()> {

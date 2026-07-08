@@ -10,6 +10,12 @@ The repository currently has five pieces:
 - A synthetic capture generator for fake end-to-end testing.
 - A small Rust training/inference scaffold for the 14-label fragrance wheel.
 
+## Prototype Scope
+
+NoseKnows currently models one fragrance exposure per capture. A capture is expected to contain one named sample, one controlled exposure/recovery timeline, and one set of three fragrance-wheel labels.
+
+The current system does not attempt overlapping scent separation, continuous room-state tracking, source attribution, or real-time classification of multiple simultaneous fragrances. Designer-style synthetic captures may include top, heart, and base note phases, but those phases are treated as the evolution of one fragrance sample, not separate overlapping scents.
+
 ## Wheel Demo
 
 Run the default random demo:
@@ -153,15 +159,55 @@ cargo run --bin synthesize -- --out data/raw --samples 100
 
 These files are deliberately artificial. They exist to exercise the data loader, training loop, model save path, and inference path before the real sensor dataset is large enough.
 
+The synthetic generator uses the numeric 14-subfamily matrix. Matrix values are treated as target 12-bit ADC peaks, inactive `0` entries become clean-air baseline values between `150` and `300`, and decay is modeled from the listed `T90` targets. Synthetic captures are 900 rows at 100 ms, or about 90 seconds, so the longer tails are visible.
+
+The matrix maps into the existing 9-column CSV shape as:
+
+```text
+adc0 IO1  MQ-2
+adc1 IO2  MQ-3
+adc2 IO16 MQ-5
+adc3 IO17 MQ-6
+adc4 IO18 MQ-7
+adc5 IO21 MQ-8
+adc6 IO22 MQ-9
+adc7 IO23 MQ-135
+adc8 MQ-4 placeholder, held constant for now
+```
+
+Generate phase-layered designer-fragrance captures:
+
+```sh
+cargo run --bin synthesize -- --out data/raw --samples 100 --designer
+```
+
+Designer mode uses top/heart/base note timing instead of activating all three labels at once. It currently has five recipe families:
+
+```text
+Sauvage Type       Aromatic, Citrus, Woody Amber
+Santal 33 Type     Dry Woods, Woods, Soft Floral
+Black Orchid Type  Amber, Woody Amber, Floral Amber
+Acqua di Gio Type  Water, Citrus, Floral
+Flowerbomb Type    Floral, Amber, Green
+```
+
+Each generated variant jitters phase starts, peak ADC values, decay targets, residual offsets, and rise timing so the training loop sees repeated but non-identical versions of the same fragrance translation.
+
 Train the first small sequence classifier against captured CSV files:
 
 ```sh
 cargo run --bin train -- --data data/raw --out data/models/tiny_transformer.ntm --epochs 100
 ```
 
-The trainer reads each CSV as one labeled scent sample, downsamples the 9 ADC channels to a fixed 32-step sequence, and trains against the three stored fragrance labels. The model is intentionally small for early experiments: one single-head self-attention block, a small feed-forward block, mean pooling, and a 14-label output head.
+The trainer reads each CSV as one labeled fragrance capture, downsamples the 9 ADC channels to a fixed 32-step sequence, and trains against the three stored fragrance labels. It assumes the CSV represents one sample event, not a stream containing multiple overlapping scents. The model is intentionally small for early experiments: one single-head self-attention block, a small feed-forward block, mean pooling, and a 14-label output head.
 
-This first trainer keeps the tiny transformer encoder fixed and trains the output head with plain Rust gradient updates. It is meant to validate the data path, label contract, model save path, and inference path before moving to a faster autograd backend for end-to-end training.
+By default, the trainer keeps the tiny transformer encoder fixed and trains the output head with plain Rust gradient updates. For an end-to-end training smoke test over all model parameters, use full-model mode:
+
+```sh
+cargo run --bin train -- --data data/raw --out data/models/full_transformer.ntm --full-model --epochs 200
+```
+
+Full-model mode still trains the output head with stable gradients, then applies a small SPSA update over all roughly 3k parameters. It is slower and noisier than the output-head path, but it removes the previous limitation where only the classifier head was learned.
 
 Generated model parameter files under `data/models/` are ignored by git.
 
@@ -171,9 +217,26 @@ Run inference against one captured CSV:
 cargo run --bin train -- --model data/models/tiny_transformer.ntm --predict data/raw/synthetic_0000.csv
 ```
 
+Run the training-quality sanity check:
+
+```sh
+cargo run --bin quality -- --data data/raw --epochs 250 --validation 0.2
+```
+
+The quality runner trains a plain logistic baseline on summary features from each 9-channel capture, then reports train/validation loss, primary-label top-1 accuracy, and any-label top-3 accuracy. This is a guardrail: if the baseline cannot learn the synthetic data, the data generator or labels are suspect; if the baseline can learn but the tiny transformer scaffold cannot, the transformer/training loop is the weak link.
+
+With 100 numeric-matrix captures, 100 designer-phase captures, and the current one-off raw test capture, the quality baseline currently reaches about:
+
+```text
+validation primary-label top-1: 90%
+validation any-label top-3:     100%
+```
+
 Current status:
 
 - Real collector path is working and writes training-shaped CSV files.
+- The current learning problem is constrained to one fragrance exposure per capture.
 - Synthetic captures let us test the full train/infer loop without claiming real-world scent accuracy.
 - The current model consumes one `32 x 9` downsampled time series per CSV and predicts the top 3 of the 14 fragrance-wheel labels.
 - The present trainer is intentionally simple and CPU-only; it is a scaffolding step before a real autograd-backed Rust implementation.
+- Training quality is now measured with a validation split and a simple baseline before we invest in end-to-end transformer backpropagation.
