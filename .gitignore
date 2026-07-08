@@ -1,4 +1,6 @@
 /target/
+/.platformio/
+/firmware/.pio/
 
 # Local editor and OS files
 .DS_Store

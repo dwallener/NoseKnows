@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,7 +28,26 @@ struct Activation {
     strength: f64,
 }
 
+#[derive(Clone, Copy)]
+enum AppMode {
+    Random,
+    Simulation,
+}
+
+struct AppState {
+    mode: AppMode,
+    sample_number: u32,
+}
+
 fn main() -> std::io::Result<()> {
+    let mode = parse_mode();
+    let mut state = AppState {
+        mode,
+        sample_number: match mode {
+            AppMode::Random => 1,
+            AppMode::Simulation => 32,
+        },
+    };
     let listener = bind_first_available(7878, 7899)?;
     let address = listener.local_addr()?;
     println!("NoseKnows demo running at http://{address}");
@@ -35,7 +55,7 @@ fn main() -> std::io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(err) = handle_connection(stream) {
+                if let Err(err) = handle_connection(stream, &mut state) {
                     eprintln!("request failed: {err}");
                 }
             }
@@ -44,6 +64,30 @@ fn main() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_mode() -> AppMode {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args
+        .iter()
+        .any(|arg| arg != "--random" && arg != "--simulation")
+    {
+        eprintln!("Usage: noseknows [--random | --simulation]");
+        std::process::exit(2);
+    }
+
+    let simulation = args.iter().any(|arg| arg == "--simulation");
+    let random = args.iter().any(|arg| arg == "--random");
+
+    if simulation && random {
+        eprintln!("Usage: noseknows [--random | --simulation]");
+        std::process::exit(2);
+    }
+
+    match (random, simulation) {
+        (_, true) => AppMode::Simulation,
+        _ => AppMode::Random,
+    }
 }
 
 fn bind_first_available(start_port: u16, end_port: u16) -> std::io::Result<TcpListener> {
@@ -61,7 +105,7 @@ fn bind_first_available(start_port: u16, end_port: u16) -> std::io::Result<TcpLi
     }))
 }
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
+fn handle_connection(mut stream: TcpStream, state: &mut AppState) -> std::io::Result<()> {
     let mut buffer = [0; 2048];
     let bytes_read = stream.read(&mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
@@ -79,7 +123,7 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
             APP_HTML.as_bytes(),
         ),
         "/state" => {
-            let body = random_state_json();
+            let body = state.next_state_json();
             respond(
                 &mut stream,
                 "200 OK",
@@ -110,12 +154,36 @@ fn respond(
     stream.write_all(body)
 }
 
-fn random_state_json() -> String {
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    let mut rng = XorShift64::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+impl AppState {
+    fn next_state_json(&mut self) -> String {
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let mut rng = XorShift64::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+        let sample_number = self.sample_number;
+        self.sample_number += 1;
+
+        let (mode, next_delay_ms) = match self.mode {
+            AppMode::Random => ("random", 3_000),
+            AppMode::Simulation => ("simulation", rng.range_u64(7_000, 13_000)),
+        };
+        let status = format!("processing sample {sample_number:04}");
+        let activations = random_activations(&mut rng);
+
+        format!(
+            "{{\"mode\":\"{}\",\"generated_at_ms\":{},\"sample_number\":{},\"status\":\"{}\",\"next_delay_ms\":{},\"activations\":[{}]}}",
+            mode,
+            seed / 1_000_000,
+            sample_number,
+            status,
+            next_delay_ms,
+            activations
+        )
+    }
+}
+
+fn random_activations(rng: &mut XorShift64) -> String {
     let mut logits: Vec<Activation> = CATEGORIES
         .iter()
         .map(|name| Activation {
@@ -142,8 +210,7 @@ fn random_state_json() -> String {
         item.strength = probability.sqrt().clamp(0.08, 1.0);
     }
 
-    let items = top
-        .iter()
+    top.iter()
         .map(|item| {
             format!(
                 "{{\"name\":\"{}\",\"logit\":{:.3},\"strength\":{:.3}}}",
@@ -151,13 +218,7 @@ fn random_state_json() -> String {
             )
         })
         .collect::<Vec<_>>()
-        .join(",");
-
-    format!(
-        "{{\"generated_at_ms\":{},\"activations\":[{}]}}",
-        seed / 1_000_000,
-        items
-    )
+        .join(",")
 }
 
 struct XorShift64 {
@@ -174,6 +235,10 @@ impl XorShift64 {
         self.state ^= self.state >> 7;
         self.state ^= self.state << 17;
         (self.state as f64) / (u64::MAX as f64)
+    }
+
+    fn range_u64(&mut self, min: u64, max: u64) -> u64 {
+        min + (self.next_f64() * ((max - min + 1) as f64)).floor() as u64
     }
 
     fn normalish_logit(&mut self) -> f64 {
@@ -449,7 +514,7 @@ const APP_HTML: &str = r##"<!doctype html>
       <div class="appbar">
         <div>
           <h1>NoseKnows fragrance wheel</h1>
-          <div id="status" class="status">Generating random NoseLLM vectors every 3 seconds</div>
+          <div id="status" class="status">processing sample 0000 - 00:00 / 00:00</div>
         </div>
         <button id="toggle" type="button">Stop</button>
       </div>
@@ -492,7 +557,11 @@ const APP_HTML: &str = r##"<!doctype html>
     const toggle = document.querySelector("#toggle");
     const sectors = new Map();
     let running = true;
-    let timer = null;
+    let sampleTimer = null;
+    let clockTimer = null;
+    let currentStatus = "processing sample 0000";
+    let sampleStartedAt = 0;
+    let samplePeriodMs = 3000;
     const SVG_NS = "http://www.w3.org/2000/svg";
 
     function polar(cx, cy, r, degrees) {
@@ -617,6 +686,10 @@ const APP_HTML: &str = r##"<!doctype html>
     }
 
     function applyState(state) {
+      currentStatus = state.status;
+      sampleStartedAt = Date.now();
+      samplePeriodMs = state.next_delay_ms;
+
       for (const sector of sectors.values()) {
         sector.classList.remove("active");
         sector.style.removeProperty("--sector-opacity");
@@ -649,28 +722,53 @@ const APP_HTML: &str = r##"<!doctype html>
       });
 
       renderSensors();
-      status.textContent = running
-        ? "Generating random NoseLLM vectors every 3 seconds"
-        : "Paused";
+      updateSampleTimer();
+    }
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function updateSampleTimer() {
+      if (!running) {
+        status.textContent = "Paused";
+        return;
+      }
+
+      const elapsed = Date.now() - sampleStartedAt;
+      status.textContent = `${currentStatus} - ${formatDuration(elapsed)} / ${formatDuration(samplePeriodMs)}`;
     }
 
     async function refresh() {
       const response = await fetch("/state", { cache: "no-store" });
-      applyState(await response.json());
+      const state = await response.json();
+      applyState(state);
+      scheduleNext(state.next_delay_ms);
+    }
+
+    function scheduleNext(delayMs) {
+      clearTimeout(sampleTimer);
+      if (running) {
+        sampleTimer = setTimeout(refresh, delayMs);
+      }
     }
 
     function schedule() {
-      clearInterval(timer);
+      clearTimeout(sampleTimer);
+      clearInterval(clockTimer);
       if (running) {
         refresh();
-        timer = setInterval(refresh, 3000);
+        clockTimer = setInterval(updateSampleTimer, 250);
       }
     }
 
     toggle.addEventListener("click", () => {
       running = !running;
       toggle.textContent = running ? "Stop" : "Start";
-      status.textContent = running ? "Generating random NoseLLM vectors every 3 seconds" : "Paused";
+      status.textContent = running ? currentStatus : "Paused";
       schedule();
     });
 
