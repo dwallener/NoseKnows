@@ -1,0 +1,264 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="574" viewBox="0 0 920 574">
+<rect width="100%" height="100%" fill="#f6f8f8"/>
+<text x="20" y="32" font-family="system-ui,-apple-system,sans-serif" font-size="22" font-weight="700" fill="#263235">Synthetic scent response model</text>
+<text x="20" y="54" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#657073">Peak 12-bit ADC target by fragrance label and active sensor; darker cells are stronger responses. MQ-4 placeholder omitted.</text>
+<text x="196.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc0 MQ-2</text>
+<text x="288.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc1 MQ-3</text>
+<text x="380.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc2 MQ-5</text>
+<text x="472.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc3 MQ-6</text>
+<text x="564.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc4 MQ-7</text>
+<text x="656.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc5 MQ-8</text>
+<text x="748.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc6 MQ-9</text>
+<text x="840.0" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">adc7 MQ-135</text>
+<text x="20" y="102.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Floral</text>
+<rect x="150.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="242.0" y="82.0" width="90.0" height="28.0" fill="#a04baa" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">4095</text>
+<rect x="334.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="82.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="82.0" width="90.0" height="28.0" fill="#6ab3ad" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="101.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1500</text>
+<text x="20" y="132.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Soft Floral</text>
+<rect x="150.0" y="112.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="242.0" y="112.0" width="90.0" height="28.0" fill="#2e968d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2200</text>
+<rect x="334.0" y="112.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="112.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="112.0" width="90.0" height="28.0" fill="#369a92" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2100</text>
+<rect x="610.0" y="112.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="112.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="112.0" width="90.0" height="28.0" fill="#2e968d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="131.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2200</text>
+<text x="20" y="162.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Floral Amber</text>
+<rect x="150.0" y="142.0" width="90.0" height="28.0" fill="#8dc4c0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1100</text>
+<rect x="242.0" y="142.0" width="90.0" height="28.0" fill="#a04baa" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">4095</text>
+<rect x="334.0" y="142.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="142.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="142.0" width="90.0" height="28.0" fill="#73679e" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3400</text>
+<rect x="610.0" y="142.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="142.0" width="90.0" height="28.0" fill="#597698" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3000</text>
+<rect x="794.0" y="142.0" width="90.0" height="28.0" fill="#8d57a5" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="161.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3800</text>
+<text x="20" y="192.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Amber</text>
+<rect x="150.0" y="172.0" width="90.0" height="28.0" fill="#2e968d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2200</text>
+<rect x="242.0" y="172.0" width="90.0" height="28.0" fill="#398a8f" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2500</text>
+<rect x="334.0" y="172.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="172.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="172.0" width="90.0" height="28.0" fill="#9353a7" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3900</text>
+<rect x="610.0" y="172.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="172.0" width="90.0" height="28.0" fill="#8d57a5" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3800</text>
+<rect x="794.0" y="172.0" width="90.0" height="28.0" fill="#a04baa" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="191.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">4095</text>
+<text x="20" y="222.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Soft Amber</text>
+<rect x="150.0" y="202.0" width="90.0" height="28.0" fill="#9eccc9" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">900</text>
+<rect x="242.0" y="202.0" width="90.0" height="28.0" fill="#84c0bb" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1200</text>
+<rect x="334.0" y="202.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="202.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="202.0" width="90.0" height="28.0" fill="#865ba3" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3700</text>
+<rect x="610.0" y="202.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="202.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="202.0" width="90.0" height="28.0" fill="#7a63a0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="221.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3500</text>
+<text x="20" y="252.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Woody Amber</text>
+<rect x="150.0" y="232.0" width="90.0" height="28.0" fill="#7a63a0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3500</text>
+<rect x="242.0" y="232.0" width="90.0" height="28.0" fill="#50a7a0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1800</text>
+<rect x="334.0" y="232.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="232.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="232.0" width="90.0" height="28.0" fill="#597698" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3000</text>
+<rect x="610.0" y="232.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="232.0" width="90.0" height="28.0" fill="#73679e" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3400</text>
+<rect x="794.0" y="232.0" width="90.0" height="28.0" fill="#9a4fa8" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="251.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">4000</text>
+<text x="20" y="282.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Woods</text>
+<rect x="150.0" y="262.0" width="90.0" height="28.0" fill="#607299" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3100</text>
+<rect x="242.0" y="262.0" width="90.0" height="28.0" fill="#9eccc9" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">900</text>
+<rect x="334.0" y="262.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="262.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="262.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="262.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="262.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="262.0" width="90.0" height="28.0" fill="#666e9b" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="281.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3200</text>
+<text x="20" y="312.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Mossy Woods</text>
+<rect x="150.0" y="292.0" width="90.0" height="28.0" fill="#4c7e94" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">2800</text>
+<rect x="242.0" y="292.0" width="90.0" height="28.0" fill="#537a96" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">2900</text>
+<rect x="334.0" y="292.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="292.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="292.0" width="90.0" height="28.0" fill="#607299" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3100</text>
+<rect x="610.0" y="292.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="292.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="292.0" width="90.0" height="28.0" fill="#597698" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="311.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3000</text>
+<text x="20" y="342.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Dry Woods</text>
+<rect x="150.0" y="322.0" width="90.0" height="28.0" fill="#3f9f97" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2000</text>
+<rect x="242.0" y="322.0" width="90.0" height="28.0" fill="#8dc4c0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1100</text>
+<rect x="334.0" y="322.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="322.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="322.0" width="90.0" height="28.0" fill="#9353a7" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3900</text>
+<rect x="610.0" y="322.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="322.0" width="90.0" height="28.0" fill="#805fa2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3600</text>
+<rect x="794.0" y="322.0" width="90.0" height="28.0" fill="#8d57a5" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="341.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3800</text>
+<text x="20" y="372.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Aromatic</text>
+<rect x="150.0" y="352.0" width="90.0" height="28.0" fill="#338e8d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2400</text>
+<rect x="242.0" y="352.0" width="90.0" height="28.0" fill="#805fa2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3600</text>
+<rect x="334.0" y="352.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="352.0" width="90.0" height="28.0" fill="#537a96" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">2900</text>
+<rect x="518.0" y="352.0" width="90.0" height="28.0" fill="#537a96" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">2900</text>
+<rect x="610.0" y="352.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="352.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="352.0" width="90.0" height="28.0" fill="#73679e" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="371.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3400</text>
+<text x="20" y="402.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Citrus</text>
+<rect x="150.0" y="382.0" width="90.0" height="28.0" fill="#8d57a5" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3800</text>
+<rect x="242.0" y="382.0" width="90.0" height="28.0" fill="#3f9f97" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2000</text>
+<rect x="334.0" y="382.0" width="90.0" height="28.0" fill="#7a63a0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3500</text>
+<rect x="426.0" y="382.0" width="90.0" height="28.0" fill="#865ba3" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3700</text>
+<rect x="518.0" y="382.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="382.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="382.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="382.0" width="90.0" height="28.0" fill="#2e968d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="401.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2200</text>
+<text x="20" y="432.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Water</text>
+<rect x="150.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="242.0" y="412.0" width="90.0" height="28.0" fill="#a7d1cd" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">800</text>
+<rect x="334.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="412.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="412.0" width="90.0" height="28.0" fill="#50a7a0" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="431.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1800</text>
+<text x="20" y="462.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Green</text>
+<rect x="150.0" y="442.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="242.0" y="442.0" width="90.0" height="28.0" fill="#398a8f" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2500</text>
+<rect x="334.0" y="442.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="442.0" width="90.0" height="28.0" fill="#b8d9d7" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">600</text>
+<rect x="518.0" y="442.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="442.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="442.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="442.0" width="90.0" height="28.0" fill="#597698" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="461.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3000</text>
+<text x="20" y="492.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">Fruity</text>
+<rect x="150.0" y="472.0" width="90.0" height="28.0" fill="#84c0bb" stroke="#d9e0e0" stroke-width="1"/>
+<text x="195.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">1200</text>
+<rect x="242.0" y="472.0" width="90.0" height="28.0" fill="#8d57a5" stroke="#d9e0e0" stroke-width="1"/>
+<text x="287.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#ffffff">3800</text>
+<rect x="334.0" y="472.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="379.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="426.0" y="472.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="471.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="518.0" y="472.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="563.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="610.0" y="472.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="655.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="702.0" y="472.0" width="90.0" height="28.0" fill="#ecf2f2" stroke="#d9e0e0" stroke-width="1"/>
+<text x="747.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">-</text>
+<rect x="794.0" y="472.0" width="90.0" height="28.0" fill="#2e968d" stroke="#d9e0e0" stroke-width="1"/>
+<text x="839.0" y="491.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#263235">2200</text>
+<rect x="150.0" y="540.0" width="28" height="10" fill="#ecf2f2"/>
+<rect x="178.0" y="540.0" width="28" height="10" fill="#c9e1df"/>
+<rect x="206.0" y="540.0" width="28" height="10" fill="#a5d0cd"/>
+<rect x="234.0" y="540.0" width="28" height="10" fill="#82bfba"/>
+<rect x="262.0" y="540.0" width="28" height="10" fill="#5eaea7"/>
+<rect x="290.0" y="540.0" width="28" height="10" fill="#3b9d94"/>
+<rect x="318.0" y="540.0" width="28" height="10" fill="#368c8e"/>
+<rect x="346.0" y="540.0" width="28" height="10" fill="#517c95"/>
+<rect x="374.0" y="540.0" width="28" height="10" fill="#6b6b9c"/>
+<rect x="402.0" y="540.0" width="28" height="10" fill="#865ba3"/>
+<rect x="430.0" y="540.0" width="28" height="10" fill="#a04baa"/>
+<text x="150.0" y="566.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#657073">0</text>
+<text x="458.0" y="566.0" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="end" fill="#657073">4095</text>
+</svg>
