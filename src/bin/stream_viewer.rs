@@ -402,6 +402,8 @@ input[type=range] {{ width:min(42vw,620px); }}
 main {{ padding:10px 14px 22px; }}
 canvas {{ display:block; width:100%; height:auto; background:var(--bg); }}
 .hint {{ color:var(--muted); font-size:12px; margin:8px 0 0; }}
+.status {{ color:var(--muted); font-size:12px; margin:0 0 8px; white-space:pre-wrap; }}
+.status.error {{ color:#9b2c2c; }}
 </style>
 </head>
 <body>
@@ -418,6 +420,7 @@ canvas {{ display:block; width:100%; height:auto; background:var(--bg); }}
   </div>
 </header>
 <main>
+  <div class="status" id="status">Loading stream data...</div>
   <canvas id="view" width="1400" height="1200"></canvas>
   <div class="hint">Drag the slider or use left/right arrow keys. The minimap shows the full downsampled stream; the main panels show the selected window.</div>
 </main>
@@ -445,10 +448,18 @@ const canvas = document.getElementById('view');
 const ctx = canvas.getContext('2d');
 const scrub = document.getElementById('scrub');
 const meta = document.getElementById('meta');
-const left = 218, right = 24, top = 74, panelW = 1120;
+const status = document.getElementById('status');
+const left = 218, right = 24, topY = 74, panelW = 1120;
 const viewportBuckets = Math.min(DATA.window, DATA.rows.length);
 scrub.max = Math.max(0, DATA.rows.length - viewportBuckets);
 scrub.value = 0;
+
+function reportError(error) {{
+  const message = error && error.stack ? error.stack : String(error);
+  status.textContent = `Viewer render error:\n${{message}}`;
+  status.className = 'status error';
+  throw error;
+}}
 
 function color(hex, alpha) {{
   const n = parseInt(hex.slice(1), 16);
@@ -576,25 +587,31 @@ function renderLabelPanel(start,end,y,gated=false) {{
   }}
 }}
 function draw() {{
-  const start = Number(scrub.value);
-  const [a,b] = bucketsFor(start);
-  canvas.width = Math.max(1220, window.innerWidth - 28);
-  const scale = Math.min(1, (canvas.width - left - right) / panelW);
-  canvas.height = 1540 * scale;
-  ctx.setTransform(scale,0,0,scale,0,0);
-  rect(0,0,canvas.width / scale,canvas.height / scale,'#f6f8f8');
-  text('stream timeline', 8, 24, 22, '#263235', '700', 'left', 'system-ui,-apple-system,sans-serif');
-  meta.textContent = `rows ${{DATA.rows[a][0]}}..${{DATA.rows[b-1][1]}} / ${{DATA.streamStart}}..${{DATA.streamEnd}} · buckets ${{a}}..${{b}} / ${{DATA.rows.length}} · model window=${{DATA.modelWindow}}`;
-  renderMinimap(start);
-  let y = top;
-  renderTruth(a,b,y); y += 58;
-  renderAdc(a,b,y); y += 210;
-  renderHeatPanel('rolling input features', 'rate lanes first, delta lanes second', DATA.featureNames, DATA.features, a,b,y,11,6,()=>1,[8]); y += 238;
-  renderHeatPanel('accordion motifs', '64 seeded pattern responses over rolling input features', DATA.patternNames, DATA.patterns, a,b,y,7,3.8,()=>1,[0,16,32,48]);
-  text('single',8,y+5,11,'#657073'); text('pair',8,y+16*7+5,11,'#657073'); text('onset/tail',8,y+32*7+5,11,'#657073'); text('cluster',8,y+48*7+5,11,'#657073');
-  y += 506;
-  renderLabelPanel(a,b,y,false); y += 300;
-  renderLabelPanel(a,b,y,true);
+  try {{
+    const start = Number(scrub.value);
+    const [a,b] = bucketsFor(start);
+    canvas.width = Math.max(1220, window.innerWidth - 28);
+    const scale = Math.min(1, (canvas.width - left - right) / panelW);
+    canvas.height = 1540 * scale;
+    ctx.setTransform(scale,0,0,scale,0,0);
+    rect(0,0,canvas.width / scale,canvas.height / scale,'#f6f8f8');
+    text('stream timeline', 8, 24, 22, '#263235', '700', 'left', 'system-ui,-apple-system,sans-serif');
+    meta.textContent = `rows ${{DATA.rows[a][0]}}..${{DATA.rows[b-1][1]}} / ${{DATA.streamStart}}..${{DATA.streamEnd}} · buckets ${{a}}..${{b}} / ${{DATA.rows.length}} · model window=${{DATA.modelWindow}}`;
+    renderMinimap(start);
+    let y = topY;
+    renderTruth(a,b,y); y += 58;
+    renderAdc(a,b,y); y += 210;
+    renderHeatPanel('rolling input features', 'rate lanes first, delta lanes second', DATA.featureNames, DATA.features, a,b,y,11,6,()=>1,[8]); y += 238;
+    renderHeatPanel('accordion motifs', '64 seeded pattern responses over rolling input features', DATA.patternNames, DATA.patterns, a,b,y,7,3.8,()=>1,[0,16,32,48]);
+    text('single',8,y+5,11,'#657073'); text('pair',8,y+16*7+5,11,'#657073'); text('onset/tail',8,y+32*7+5,11,'#657073'); text('cluster',8,y+48*7+5,11,'#657073');
+    y += 506;
+    renderLabelPanel(a,b,y,false); y += 300;
+    renderLabelPanel(a,b,y,true);
+    status.textContent = '';
+    status.className = 'status';
+  }} catch (error) {{
+    reportError(error);
+  }}
 }}
 function jumpActive(dir=1) {{
   let i = Number(scrub.value) + dir;
@@ -614,7 +631,7 @@ window.addEventListener('keydown', e => {{
   if (e.key === 'ArrowRight') document.getElementById('next').click();
 }});
 window.addEventListener('resize', draw);
-draw();
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>"##,
