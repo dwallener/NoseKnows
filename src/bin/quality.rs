@@ -22,6 +22,7 @@ const LABELS: [&str; 14] = [
     "Green",
     "Fruity",
 ];
+const NO_SCENT_LABEL: &str = "No Scent";
 
 struct Config {
     data_dir: PathBuf,
@@ -358,21 +359,27 @@ fn evaluate(
         let logits = model.predict(&features[*sample_index]);
         metrics.loss += binary_cross_entropy_with_logits(&logits, &sample.target);
 
-        let top = top_k(&logits, 3);
-        let primary = label_index(&sample.labels[0]).expect("validated label");
-        if top[0].0 == primary {
-            metrics.primary_at_1 += 1.0;
-        }
-
         let label_indexes = sample
             .labels
             .iter()
             .filter_map(|label| label_index(label))
             .collect::<Vec<_>>();
-        if top
-            .iter()
-            .any(|(predicted, _)| label_indexes.contains(predicted))
+        let top = top_k(&logits, 3);
+        if let Some(primary) = label_indexes.first() {
+            if top[0].0 == *primary {
+                metrics.primary_at_1 += 1.0;
+            }
+        } else if top[0].1 <= 0.0 {
+            metrics.primary_at_1 += 1.0;
+        }
+
+        if !label_indexes.is_empty()
+            && top
+                .iter()
+                .any(|(predicted, _)| label_indexes.contains(predicted))
         {
+            metrics.any_at_3 += 1.0;
+        } else if label_indexes.is_empty() && top[0].1 <= 0.0 {
             metrics.any_at_3 += 1.0;
         }
     }
@@ -430,10 +437,17 @@ fn target_from_labels(
     let mut target = [0.0_f32; LABELS.len()];
     let weights = [1.0_f32, 0.66, 0.33];
     for (label, weight) in labels.iter().zip(weights) {
+        if is_no_scent_label(label) {
+            continue;
+        }
         let index = label_index(label).ok_or_else(|| format!("unknown label: {label}"))?;
         target[index] = weight;
     }
     Ok(target)
+}
+
+fn is_no_scent_label(label: &str) -> bool {
+    normalize_label(label) == normalize_label(NO_SCENT_LABEL)
 }
 
 fn label_index(label: &str) -> Option<usize> {
@@ -514,6 +528,18 @@ mod tests {
         let (train, validation) = split_indexes(10, 0.2, 1);
         assert_eq!(train.len(), 8);
         assert_eq!(validation.len(), 2);
+    }
+
+    #[test]
+    fn no_scent_labels_map_to_empty_target() {
+        let target = target_from_labels(&[
+            NO_SCENT_LABEL.to_string(),
+            NO_SCENT_LABEL.to_string(),
+            NO_SCENT_LABEL.to_string(),
+        ])
+        .expect("target");
+
+        assert!(target.iter().all(|value| *value == 0.0));
     }
 
     fn assert_close(left: f32, right: f32) {

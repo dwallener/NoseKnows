@@ -16,18 +16,40 @@ const CHANNEL_NAMES: [&str; CHANNELS] = [
 ];
 const DEFAULT_INPUT: &str = "data/raw/synthetic_0000.csv";
 const DEFAULT_OUTPUT: &str = "data/spikes.svg";
-const DEFAULT_MODEL: &str = "data/models/snn_lif_smoke.nsm";
+const DEFAULT_MODEL: &str = "data/models/snn_lif.nsm";
 const DEFAULT_BINS: usize = 180;
 const DEFAULT_SUBSLOTS: usize = 5;
 const DEFAULT_RATE_BUDGET: usize = 5;
 const DEFAULT_LATENCY_BUDGET: usize = 5;
+const DEFAULT_GATE_MIN_TOP: usize = 3;
+const DEFAULT_GATE_MARGIN: isize = 1;
+const DEFAULT_GATE_MIN_ACTIVITY: usize = 12;
+const DEFAULT_GATE_WINDOW_SAMPLES: usize = 6;
 const ACTIVE_SENSORS: usize = 8;
 const SNN_INPUTS: usize = ACTIVE_SENSORS * 2;
+const PATTERN_NEURONS: usize = 64;
+const PATTERN_WINNERS_PER_STEP: usize = 3;
 const SNN_OUTPUTS: usize = 14;
 const THRESHOLD: i32 = 1000;
 const DECAY_ALPHA_Q8: i32 = 235;
+const ADAPT_SENSOR: usize = 4;
+const ADAPT_INCREMENT: i32 = 450;
+const ADAPT_DECAY_Q8: i32 = 224;
+const ADAPT_MAX: i32 = 2400;
 const MIN_MEMBRANE: i32 = -3000;
 const MAX_ADC: f32 = 4095.0;
+const MIN_SIGNAL_RANGE_ADC: f32 = 80.0;
+const MIN_DELTA_ADC: f32 = 25.0;
+const LABEL_FLORAL: usize = 0;
+const LABEL_FLORAL_AMBER: usize = 2;
+const LABEL_AMBER: usize = 3;
+const LABEL_WOODY_AMBER: usize = 5;
+const LABEL_DRY_WOODS: usize = 8;
+const LABEL_WATER: usize = 11;
+const LABEL_GREEN: usize = 12;
+const BASE_GATE_MIN_TOP: usize = 2;
+const BASE_GATE_WINDOW_SAMPLES: usize = 18;
+const TOP_NOTE_INHIBITION: i32 = 1000;
 const LABELS: [&str; SNN_OUTPUTS] = [
     "Floral",
     "Soft Floral",
@@ -74,6 +96,10 @@ struct Config {
     subslots: usize,
     rate_budget: usize,
     latency_budget: usize,
+    gate_min_top: usize,
+    gate_margin: isize,
+    gate_min_activity: usize,
+    gate_window_samples: usize,
 }
 
 struct SpikeEvent {
@@ -88,7 +114,16 @@ struct SpikeView {
     rate: Vec<SpikeEvent>,
     latency: Vec<SpikeEvent>,
     mixed: Vec<SpikeEvent>,
+    pattern: Option<Vec<PatternSpike>>,
+    pattern_names: Option<Vec<String>>,
     output: Option<Vec<OutputSpike>>,
+    gated: Option<Vec<GatedDecision>>,
+}
+
+struct PatternSpike {
+    sample_index: usize,
+    subslot: usize,
+    pattern: usize,
 }
 
 struct OutputSpike {
@@ -97,8 +132,31 @@ struct OutputSpike {
     label: usize,
 }
 
-struct LifModel {
+struct GatedDecision {
+    sample_index: usize,
+    subslot: usize,
+    label: usize,
+    rank: usize,
+    score: usize,
+}
+
+enum SnnModel {
+    Direct(DirectLifModel),
+    Accordion(AccordionLifModel),
+}
+
+struct DirectLifModel {
     weights: [[i16; SNN_INPUTS]; SNN_OUTPUTS],
+    bias: [i16; SNN_OUTPUTS],
+    threshold: i32,
+    decay_alpha_q8: i32,
+}
+
+struct AccordionLifModel {
+    pattern_weights: [[i16; SNN_INPUTS]; PATTERN_NEURONS],
+    label_weights: [[i16; PATTERN_NEURONS]; SNN_OUTPUTS],
+    label_bias: [i16; SNN_OUTPUTS],
+    pattern_names: Vec<String>,
     threshold: i32,
     decay_alpha_q8: i32,
 }
@@ -124,14 +182,51 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         rate: encode_spikes(&binned, Encoding::Rate, &config),
         latency: encode_spikes(&binned, Encoding::Latency, &config),
         mixed: encode_spikes(&binned, Encoding::Mixed, &config),
+        pattern: None,
+        pattern_names: None,
         output: None,
+        gated: None,
     };
-    let model = load_lif_model(&config.model)?;
+    let model = load_snn_model(&config.model)?;
     let input_masks = input_masks_from_events(&view.mixed, bins, subslots);
-    let output_spikes = model.forward_spikes(&input_masks, subslots);
-    let view = SpikeView {
-        output: Some(output_spikes),
-        ..view
+    let view = match model {
+        SnnModel::Direct(model) => {
+            let output_spikes = model.forward_spikes(&input_masks, subslots);
+            let gated = gated_decisions(
+                &output_spikes,
+                None,
+                Some(&view.mixed),
+                bins,
+                subslots,
+                &config,
+            );
+            SpikeView {
+                output: Some(output_spikes),
+                gated: Some(gated),
+                ..view
+            }
+        }
+        SnnModel::Accordion(model) => {
+            let pattern_masks = model.forward_pattern_masks(&input_masks);
+            let pattern_spikes = pattern_spikes_from_masks(&pattern_masks, subslots);
+            let output_spikes = model.forward_label_spikes(&pattern_masks, subslots);
+            let gated = gated_decisions(
+                &output_spikes,
+                Some(&pattern_spikes),
+                Some(&view.mixed),
+                bins,
+                subslots,
+                &config,
+            );
+            print_accordion_contribution_summary(&model, &pattern_spikes, &gated, &sample.labels);
+            SpikeView {
+                pattern: Some(pattern_spikes),
+                pattern_names: Some(model.pattern_names),
+                output: Some(output_spikes),
+                gated: Some(gated),
+                ..view
+            }
+        }
     };
     let svg = render_svg(&sample, &view, bins, subslots);
     if let Some(parent) = config.output.parent() {
@@ -154,13 +249,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         subslots,
         config.rate_budget,
         config.latency_budget,
-        CHANNELS * (config.rate_budget + config.latency_budget)
+        ACTIVE_SENSORS * (config.rate_budget + config.latency_budget)
     );
     print_spike_summary("rate", &view.rate);
     print_spike_summary("latency", &view.latency);
     print_spike_summary("mixed", &view.mixed);
+    if let Some(pattern) = &view.pattern {
+        print_pattern_summary("pattern", pattern);
+    }
     if let Some(output) = &view.output {
         print_output_summary("output", output);
+    }
+    if let Some(gated) = &view.gated {
+        print_gated_summary("gated", gated);
     }
     Ok(())
 }
@@ -173,6 +274,10 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut subslots = DEFAULT_SUBSLOTS;
     let mut rate_budget = DEFAULT_RATE_BUDGET;
     let mut latency_budget = DEFAULT_LATENCY_BUDGET;
+    let mut gate_min_top = DEFAULT_GATE_MIN_TOP;
+    let mut gate_margin = DEFAULT_GATE_MARGIN;
+    let mut gate_min_activity = DEFAULT_GATE_MIN_ACTIVITY;
+    let mut gate_window_samples = DEFAULT_GATE_WINDOW_SAMPLES;
 
     let args = env::args().skip(1).collect::<Vec<_>>();
     let mut index = 0;
@@ -215,9 +320,37 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                     .ok_or("--latency-budget requires a value")?
                     .parse()?;
             }
+            "--gate-min-top" => {
+                index += 1;
+                gate_min_top = args
+                    .get(index)
+                    .ok_or("--gate-min-top requires a value")?
+                    .parse()?;
+            }
+            "--gate-margin" => {
+                index += 1;
+                gate_margin = args
+                    .get(index)
+                    .ok_or("--gate-margin requires a value")?
+                    .parse()?;
+            }
+            "--gate-min-activity" => {
+                index += 1;
+                gate_min_activity = args
+                    .get(index)
+                    .ok_or("--gate-min-activity requires a value")?
+                    .parse()?;
+            }
+            "--gate-window" => {
+                index += 1;
+                gate_window_samples = args
+                    .get(index)
+                    .ok_or("--gate-window requires a value")?
+                    .parse()?;
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin spikes -- [--input data/raw/synthetic_0000.csv] [--out data/spikes.svg] [--model data/models/snn_lif_smoke.nsm] [--bins 180] [--subslots 5] [--rate-budget 5] [--latency-budget 5]"
+                    "Usage: cargo run --bin spikes -- [--input data/raw/synthetic_0000.csv] [--out data/spikes.svg] [--model data/models/snn_lif.nsm] [--bins 180] [--subslots 5] [--rate-budget 5] [--latency-budget 5] [--gate-min-top 3] [--gate-margin 1] [--gate-min-activity 12] [--gate-window 6]"
                 );
                 std::process::exit(0);
             }
@@ -234,6 +367,10 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         subslots,
         rate_budget,
         latency_budget,
+        gate_min_top,
+        gate_margin,
+        gate_min_activity,
+        gate_window_samples: gate_window_samples.max(1),
     })
 }
 
@@ -343,11 +480,21 @@ fn encode_spikes(rows: &[[f32; CHANNELS]], encoding: Encoding, config: &Config) 
         let mut previous = rows[0][channel];
 
         for (index, row) in rows.iter().enumerate() {
-            let amplitude = ((row[channel] - baseline) / (peak - baseline)).clamp(0.0, 1.0);
+            let signal_range = peak - baseline;
+            let amplitude = if signal_range >= MIN_SIGNAL_RANGE_ADC {
+                ((row[channel] - baseline) / signal_range).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let delta = if index == 0 {
                 0.0
             } else {
-                (row[channel] - previous).max(0.0) / MAX_ADC
+                let raw_delta = (row[channel] - previous).max(0.0);
+                if raw_delta >= MIN_DELTA_ADC {
+                    raw_delta / MAX_ADC
+                } else {
+                    0.0
+                }
             };
             if matches!(encoding, Encoding::Rate | Encoding::Mixed) {
                 for slot in 0..rate_spike_count(amplitude, config.rate_budget) {
@@ -424,9 +571,18 @@ fn input_masks_from_events(events: &[SpikeEvent], bins: usize, subslots: usize) 
     masks
 }
 
-fn load_lif_model(path: &PathBuf) -> Result<LifModel, Box<dyn std::error::Error>> {
+fn load_snn_model(path: &PathBuf) -> Result<SnnModel, Box<dyn std::error::Error>> {
     let text = fs::read_to_string(path)?;
+    if text.lines().next() == Some("NOSEKNOWS_SNN_ACCORDION_V1") {
+        load_accordion_model(path, &text)
+    } else {
+        load_direct_model(path, &text)
+    }
+}
+
+fn load_direct_model(path: &PathBuf, text: &str) -> Result<SnnModel, Box<dyn std::error::Error>> {
     let mut weights = [[0_i16; SNN_INPUTS]; SNN_OUTPUTS];
+    let mut bias = [0_i16; SNN_OUTPUTS];
     let mut threshold = THRESHOLD;
     let mut decay_alpha_q8 = DECAY_ALPHA_Q8;
 
@@ -435,6 +591,15 @@ fn load_lif_model(path: &PathBuf) -> Result<LifModel, Box<dyn std::error::Error>
             threshold = value.parse()?;
         } else if let Some(value) = line.strip_prefix("decay_alpha_q8=") {
             decay_alpha_q8 = value.parse()?;
+        } else if let Some(rest) = line.strip_prefix("bias.") {
+            let (label, value) = rest
+                .split_once('=')
+                .ok_or_else(|| format!("invalid bias line in {}", path.display()))?;
+            let label_index = LABELS
+                .iter()
+                .position(|candidate| *candidate == label)
+                .ok_or_else(|| format!("unknown label in model: {label}"))?;
+            bias[label_index] = value.parse()?;
         } else if let Some(rest) = line.strip_prefix("weights.") {
             let (label, values) = rest
                 .split_once('=')
@@ -459,14 +624,106 @@ fn load_lif_model(path: &PathBuf) -> Result<LifModel, Box<dyn std::error::Error>
         }
     }
 
-    Ok(LifModel {
+    Ok(SnnModel::Direct(DirectLifModel {
         weights,
+        bias,
         threshold,
         decay_alpha_q8,
-    })
+    }))
 }
 
-impl LifModel {
+fn load_accordion_model(
+    path: &PathBuf,
+    text: &str,
+) -> Result<SnnModel, Box<dyn std::error::Error>> {
+    let mut pattern_weights = [[0_i16; SNN_INPUTS]; PATTERN_NEURONS];
+    let mut label_weights = [[0_i16; PATTERN_NEURONS]; SNN_OUTPUTS];
+    let mut label_bias = [0_i16; SNN_OUTPUTS];
+    let mut pattern_names = (0..PATTERN_NEURONS)
+        .map(|index| format!("pattern_{index:02}"))
+        .collect::<Vec<_>>();
+    let mut threshold = THRESHOLD;
+    let mut decay_alpha_q8 = DECAY_ALPHA_Q8;
+
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("threshold=") {
+            threshold = value.parse()?;
+        } else if let Some(value) = line.strip_prefix("decay_alpha_q8=") {
+            decay_alpha_q8 = value.parse()?;
+        } else if let Some(rest) = line.strip_prefix("pattern.") {
+            let (head, value) = rest
+                .split_once('=')
+                .ok_or_else(|| format!("invalid pattern line in {}", path.display()))?;
+            let (index_text, field) = head
+                .split_once('.')
+                .ok_or_else(|| format!("invalid pattern key in {}", path.display()))?;
+            let pattern: usize = index_text.parse()?;
+            if pattern >= PATTERN_NEURONS {
+                return Err(format!("pattern index {pattern} out of range").into());
+            }
+            match field {
+                "name" => pattern_names[pattern] = value.to_string(),
+                "weights" => {
+                    let parsed = value
+                        .split(',')
+                        .map(str::parse::<i16>)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if parsed.len() != SNN_INPUTS {
+                        return Err(format!(
+                            "{} pattern {pattern} expected {SNN_INPUTS}, got {}",
+                            path.display(),
+                            parsed.len()
+                        )
+                        .into());
+                    }
+                    pattern_weights[pattern].copy_from_slice(&parsed);
+                }
+                _ => {}
+            }
+        } else if let Some(rest) = line.strip_prefix("label_bias.") {
+            let (label, value) = rest
+                .split_once('=')
+                .ok_or_else(|| format!("invalid label_bias line in {}", path.display()))?;
+            let label_index = LABELS
+                .iter()
+                .position(|candidate| *candidate == label)
+                .ok_or_else(|| format!("unknown label in model: {label}"))?;
+            label_bias[label_index] = value.parse()?;
+        } else if let Some(rest) = line.strip_prefix("label_weights.") {
+            let (label, values) = rest
+                .split_once('=')
+                .ok_or_else(|| format!("invalid label_weights line in {}", path.display()))?;
+            let label_index = LABELS
+                .iter()
+                .position(|candidate| *candidate == label)
+                .ok_or_else(|| format!("unknown label in model: {label}"))?;
+            let parsed = values
+                .split(',')
+                .map(str::parse::<i16>)
+                .collect::<Result<Vec<_>, _>>()?;
+            if parsed.len() != PATTERN_NEURONS {
+                return Err(format!(
+                    "{} label weights for {label} expected {PATTERN_NEURONS}, got {}",
+                    path.display(),
+                    parsed.len()
+                )
+                .into());
+            }
+            label_weights[label_index].copy_from_slice(&parsed);
+        }
+    }
+
+    Ok(SnnModel::Accordion(AccordionLifModel {
+        pattern_weights,
+        label_weights,
+        label_bias,
+        pattern_names,
+        threshold,
+        decay_alpha_q8,
+    }))
+}
+
+impl DirectLifModel {
     fn forward_spikes(&self, masks: &[u16], subslots: usize) -> Vec<OutputSpike> {
         let mut membrane = [0_i32; SNN_OUTPUTS];
         let mut spikes = Vec::new();
@@ -474,14 +731,21 @@ impl LifModel {
         for (step, mask) in masks.iter().enumerate() {
             let sample_index = step / subslots.max(1);
             let subslot = step % subslots.max(1);
+            let mut next_values = [0_i32; SNN_OUTPUTS];
             for label in 0..SNN_OUTPUTS {
-                let mut next = (membrane[label] * self.decay_alpha_q8) >> 8;
+                let mut next =
+                    ((membrane[label] * self.decay_alpha_q8) >> 8) + self.bias[label] as i32;
                 for input in 0..SNN_INPUTS {
                     if ((mask >> input) & 1) != 0 {
                         next += self.weights[label][input] as i32;
                     }
                 }
+                next_values[label] = next;
+            }
+            apply_label_inhibition(&mut next_values, self.threshold);
 
+            for label in 0..SNN_OUTPUTS {
+                let next = next_values[label];
                 if next >= self.threshold {
                     spikes.push(OutputSpike {
                         sample_index,
@@ -499,21 +763,262 @@ impl LifModel {
     }
 }
 
+impl AccordionLifModel {
+    fn forward_pattern_masks(&self, input_masks: &[u16]) -> Vec<u64> {
+        let mut membrane = [0_i32; PATTERN_NEURONS];
+        let mut adaptation = [0_i32; PATTERN_NEURONS];
+        let mut pattern_masks = Vec::with_capacity(input_masks.len());
+
+        for input_mask in input_masks {
+            let mut next_membrane = [0_i32; PATTERN_NEURONS];
+            let mut candidates = Vec::new();
+            for pattern in 0..PATTERN_NEURONS {
+                let mut next = (membrane[pattern] * self.decay_alpha_q8) >> 8;
+                for input in 0..SNN_INPUTS {
+                    if ((input_mask >> input) & 1) != 0 {
+                        next += self.pattern_weights[pattern][input] as i32;
+                    }
+                }
+                next_membrane[pattern] = next;
+                if next >= self.threshold + adaptation[pattern] {
+                    candidates.push((pattern, next));
+                }
+            }
+
+            candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            let mut mask = 0_u64;
+            for (rank, (pattern, _)) in candidates.iter().enumerate() {
+                if rank < PATTERN_WINNERS_PER_STEP {
+                    mask |= 1_u64 << pattern;
+                    next_membrane[*pattern] = 0;
+                } else {
+                    next_membrane[*pattern] -= self.threshold / 2;
+                }
+            }
+
+            for pattern in 0..PATTERN_NEURONS {
+                membrane[pattern] = next_membrane[pattern].clamp(MIN_MEMBRANE, self.threshold - 1);
+                adaptation[pattern] = (adaptation[pattern] * ADAPT_DECAY_Q8) >> 8;
+                if ((mask >> pattern) & 1) != 0
+                    && pattern_uses_sensor(&self.pattern_weights[pattern], ADAPT_SENSOR)
+                {
+                    adaptation[pattern] = (adaptation[pattern] + ADAPT_INCREMENT).min(ADAPT_MAX);
+                }
+            }
+            pattern_masks.push(mask);
+        }
+
+        pattern_masks
+    }
+
+    fn forward_label_spikes(&self, pattern_masks: &[u64], subslots: usize) -> Vec<OutputSpike> {
+        let mut membrane = [0_i32; SNN_OUTPUTS];
+        let mut spikes = Vec::new();
+
+        for (step, mask) in pattern_masks.iter().enumerate() {
+            let sample_index = step / subslots.max(1);
+            let subslot = step % subslots.max(1);
+            let mut next_values = [0_i32; SNN_OUTPUTS];
+            for label in 0..SNN_OUTPUTS {
+                let mut next =
+                    ((membrane[label] * self.decay_alpha_q8) >> 8) + self.label_bias[label] as i32;
+                for pattern in 0..PATTERN_NEURONS {
+                    if ((mask >> pattern) & 1) != 0 {
+                        next += self.label_weights[label][pattern] as i32;
+                    }
+                }
+                next_values[label] = next;
+            }
+            apply_label_inhibition(&mut next_values, self.threshold);
+
+            for label in 0..SNN_OUTPUTS {
+                let next = next_values[label];
+                if next >= self.threshold {
+                    spikes.push(OutputSpike {
+                        sample_index,
+                        subslot,
+                        label,
+                    });
+                    membrane[label] = 0;
+                } else {
+                    membrane[label] = next.clamp(MIN_MEMBRANE, self.threshold - 1);
+                }
+            }
+        }
+
+        spikes
+    }
+}
+
+fn pattern_spikes_from_masks(pattern_masks: &[u64], subslots: usize) -> Vec<PatternSpike> {
+    let mut spikes = Vec::new();
+    for (step, mask) in pattern_masks.iter().enumerate() {
+        let sample_index = step / subslots.max(1);
+        let subslot = step % subslots.max(1);
+        for pattern in 0..PATTERN_NEURONS {
+            if ((mask >> pattern) & 1) != 0 {
+                spikes.push(PatternSpike {
+                    sample_index,
+                    subslot,
+                    pattern,
+                });
+            }
+        }
+    }
+    spikes
+}
+
+fn gated_decisions(
+    output_spikes: &[OutputSpike],
+    pattern_spikes: Option<&[PatternSpike]>,
+    input_spikes: Option<&[SpikeEvent]>,
+    bins: usize,
+    subslots: usize,
+    config: &Config,
+) -> Vec<GatedDecision> {
+    let steps = bins * subslots.max(1);
+    let mut label_counts_by_step = vec![[0_usize; SNN_OUTPUTS]; steps];
+    let mut activity_by_step = vec![0_usize; steps];
+
+    for spike in output_spikes {
+        let step = spike.sample_index * subslots.max(1) + spike.subslot.min(subslots.max(1) - 1);
+        if let Some(counts) = label_counts_by_step.get_mut(step) {
+            counts[spike.label] += 1;
+        }
+    }
+
+    if let Some(pattern_spikes) = pattern_spikes {
+        for spike in pattern_spikes {
+            let step =
+                spike.sample_index * subslots.max(1) + spike.subslot.min(subslots.max(1) - 1);
+            if let Some(activity) = activity_by_step.get_mut(step) {
+                *activity += 1;
+            }
+        }
+    } else if let Some(input_spikes) = input_spikes {
+        for spike in input_spikes {
+            let step =
+                spike.sample_index * subslots.max(1) + spike.subslot.min(subslots.max(1) - 1);
+            if let Some(activity) = activity_by_step.get_mut(step) {
+                *activity += 1;
+            }
+        }
+    }
+
+    let mut decisions = Vec::new();
+    let activity_window_steps = config.gate_window_samples.max(1) * subslots.max(1);
+
+    for step in 0..steps {
+        if step % subslots.max(1) != subslots.max(1) - 1 {
+            continue;
+        }
+
+        let mut window_labels = [0_usize; SNN_OUTPUTS];
+        for label in 0..SNN_OUTPUTS {
+            let label_window_steps = label_gate_window_samples(label, config) * subslots.max(1);
+            let label_window_start = (step + 1).saturating_sub(label_window_steps);
+            for window_step in label_window_start..=step {
+                window_labels[label] += label_counts_by_step[window_step][label];
+            }
+        }
+
+        let mut window_activity = 0_usize;
+        let activity_window_start = (step + 1).saturating_sub(activity_window_steps);
+        for window_step in activity_window_start..=step {
+            window_activity += activity_by_step[window_step];
+        }
+
+        let mut ranked = window_labels
+            .iter()
+            .copied()
+            .enumerate()
+            .collect::<Vec<_>>();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let top_score = ranked.first().map(|(_, score)| *score).unwrap_or(0);
+        let fourth_score = ranked.get(3).map(|(_, score)| *score).unwrap_or(0);
+        let margin = top_score as isize - fourth_score as isize;
+        if top_score == 0
+            || margin < config.gate_margin
+            || window_activity < config.gate_min_activity
+        {
+            continue;
+        }
+
+        for (rank, (label, score)) in ranked.into_iter().take(3).enumerate() {
+            if score < label_gate_min_top(label, config) {
+                continue;
+            }
+            decisions.push(GatedDecision {
+                sample_index: step / subslots.max(1),
+                subslot: step % subslots.max(1),
+                label,
+                rank,
+                score,
+            });
+        }
+    }
+
+    decisions
+}
+
+fn label_gate_min_top(label: usize, config: &Config) -> usize {
+    if is_base_gate_label(label) {
+        BASE_GATE_MIN_TOP.min(config.gate_min_top)
+    } else {
+        config.gate_min_top
+    }
+}
+
+fn label_gate_window_samples(label: usize, config: &Config) -> usize {
+    if is_base_gate_label(label) {
+        config.gate_window_samples.max(BASE_GATE_WINDOW_SAMPLES)
+    } else {
+        config.gate_window_samples
+    }
+}
+
+fn is_base_gate_label(label: usize) -> bool {
+    matches!(
+        label,
+        LABEL_FLORAL_AMBER | LABEL_AMBER | LABEL_WOODY_AMBER | LABEL_DRY_WOODS
+    )
+}
+
+fn apply_label_inhibition(values: &mut [i32; SNN_OUTPUTS], threshold: i32) {
+    let mut inhibition = 0;
+    if values[LABEL_GREEN] >= threshold {
+        inhibition += TOP_NOTE_INHIBITION;
+    }
+    if values[LABEL_WATER] >= threshold {
+        inhibition += TOP_NOTE_INHIBITION;
+    }
+    values[LABEL_FLORAL] -= inhibition;
+}
+
 fn render_svg(sample: &Sample, view: &SpikeView, bins: usize, subslots: usize) -> String {
     let panel_width = 980.0;
     let left = 170.0;
     let top = 78.0;
     let row_height = 18.0;
+    let pattern_row_height = 10.0;
     let panel_gap = 64.0;
     let input_panel_height = row_height * CHANNELS as f32 + 28.0;
     let output_panel_height = row_height * SNN_OUTPUTS as f32 + 28.0;
-    let panel_count = if view.output.is_some() { 4.0 } else { 3.0 };
+    let pattern_panel_height = pattern_row_height * PATTERN_NEURONS as f32 + 28.0;
+    let has_pattern = view.pattern.is_some();
+    let has_gated = view.gated.is_some();
     let width = left + panel_width + 48.0;
-    let height = if view.output.is_some() {
-        top + input_panel_height * 3.0 + output_panel_height + panel_gap * 3.0 + 30.0
-    } else {
-        top + input_panel_height * panel_count + panel_gap * 2.0 + 30.0
-    };
+    let mut height = top + input_panel_height * 3.0 + panel_gap * 2.0 + 30.0;
+    if has_pattern {
+        height += pattern_panel_height + panel_gap;
+    }
+    if view.output.is_some() {
+        height += output_panel_height + panel_gap;
+    }
+    if has_gated {
+        height += output_panel_height + panel_gap;
+    }
     let x_step = panel_width / bins.max(1) as f32;
     let mut svg = String::new();
 
@@ -567,12 +1072,43 @@ fn render_svg(sample: &Sample, view: &SpikeView, bins: usize, subslots: usize) -
         subslots,
         "#5d7c3b",
     );
+    let mut final_top = top + (input_panel_height + panel_gap) * 3.0;
+    if let Some(pattern_spikes) = &view.pattern {
+        let names = view.pattern_names.as_deref().unwrap_or(&[]);
+        render_pattern_panel(
+            &mut svg,
+            "accordion differentiation layer: 64 emergent-pattern spike trains",
+            pattern_spikes,
+            names,
+            final_top,
+            left,
+            panel_width,
+            pattern_row_height,
+            x_step,
+            subslots,
+        );
+        final_top += pattern_panel_height + panel_gap;
+    }
     if let Some(output_spikes) = &view.output {
         render_output_panel(
             &mut svg,
             "final SNN layer: 14 fragrance output spike trains",
             output_spikes,
-            top + (input_panel_height + panel_gap) * 3.0,
+            final_top,
+            left,
+            panel_width,
+            row_height,
+            x_step,
+            subslots,
+        );
+        final_top += output_panel_height + panel_gap;
+    }
+    if let Some(gated) = &view.gated {
+        render_gated_panel(
+            &mut svg,
+            "rolling gated readout: recent evidence clears threshold",
+            gated,
+            final_top,
             left,
             panel_width,
             row_height,
@@ -583,6 +1119,57 @@ fn render_svg(sample: &Sample, view: &SpikeView, bins: usize, subslots: usize) -
 
     svg.push_str("</svg>\n");
     svg
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_pattern_panel(
+    svg: &mut String,
+    title: &str,
+    spikes: &[PatternSpike],
+    names: &[String],
+    top: f32,
+    left: f32,
+    width: f32,
+    row_height: f32,
+    x_step: f32,
+    subslots: usize,
+) {
+    svg.push_str(&format!(
+        r##"<text x="28" y="{title_y:.1}" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="650" fill="#202729">{}</text>
+<line x1="{left:.1}" y1="{axis_y:.1}" x2="{right:.1}" y2="{axis_y:.1}" stroke="#cbd2d4" stroke-width="1"/>
+"##,
+        escape_xml(title),
+        title_y = top,
+        axis_y = top + 15.0,
+        right = left + width
+    ));
+
+    for pattern in 0..PATTERN_NEURONS {
+        let y = top + 30.0 + pattern as f32 * row_height;
+        let name = names
+            .get(pattern)
+            .cloned()
+            .unwrap_or_else(|| format!("pattern_{pattern:02}"));
+        svg.push_str(&format!(
+            r##"<text x="28" y="{label_y:.1}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="8" fill="#526064">p{pattern:02} {}</text>
+<line x1="{left:.1}" y1="{y:.1}" x2="{right:.1}" y2="{y:.1}" stroke="#e0e4e5" stroke-width="1"/>
+"##,
+            escape_xml(&name),
+            label_y = y + 3.0,
+            right = left + width
+        ));
+        for spike in spikes.iter().filter(|spike| spike.pattern == pattern) {
+            let x = left
+                + spike.sample_index as f32 * x_step
+                + ((spike.subslot as f32 + 0.5) / subslots.max(1) as f32) * x_step;
+            svg.push_str(&format!(
+                r##"<line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}" stroke="#6b5bb8" stroke-width="1.05" stroke-linecap="round"/>
+"##,
+                y1 = y - 3.2,
+                y2 = y + 3.2
+            ));
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -624,6 +1211,63 @@ fn render_output_panel(
             svg.push_str(&format!(
                 r##"<circle cx="{x:.1}" cy="{y:.1}" r="2.4" fill="#9b3fa7"/>
 "##
+            ));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_gated_panel(
+    svg: &mut String,
+    title: &str,
+    decisions: &[GatedDecision],
+    top: f32,
+    left: f32,
+    width: f32,
+    row_height: f32,
+    x_step: f32,
+    subslots: usize,
+) {
+    svg.push_str(&format!(
+        r##"<text x="28" y="{title_y:.1}" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="650" fill="#202729">{}</text>
+<line x1="{left:.1}" y1="{axis_y:.1}" x2="{right:.1}" y2="{axis_y:.1}" stroke="#cbd2d4" stroke-width="1"/>
+"##,
+        escape_xml(title),
+        title_y = top,
+        axis_y = top + 15.0,
+        right = left + width
+    ));
+
+    for label in 0..SNN_OUTPUTS {
+        let y = top + 30.0 + label as f32 * row_height;
+        svg.push_str(&format!(
+            r##"<text x="28" y="{label_y:.1}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#526064">{}</text>
+<line x1="{left:.1}" y1="{y:.1}" x2="{right:.1}" y2="{y:.1}" stroke="#e0e4e5" stroke-width="1"/>
+"##,
+            escape_xml(LABELS[label]),
+            label_y = y + 4.0,
+            right = left + width
+        ));
+        for decision in decisions.iter().filter(|decision| decision.label == label) {
+            let x = left
+                + decision.sample_index as f32 * x_step
+                + ((decision.subslot as f32 + 0.5) / subslots.max(1) as f32) * x_step;
+            let (color, radius) = match decision.rank {
+                0 => ("#008b8b", 3.0),
+                1 => ("#2c9f7a", 2.5),
+                _ => ("#68a357", 2.1),
+            };
+            svg.push_str(&format!(
+                r##"<path d="M {x:.1} {top_y:.1} L {right_x:.1} {y:.1} L {x:.1} {bottom_y:.1} L {left_x:.1} {y:.1} Z" fill="{color}" opacity="0.84">
+<title>rank {} score {}</title>
+</path>
+"##,
+                decision.rank + 1,
+                decision.score,
+                top_y = y - radius,
+                right_x = x + radius,
+                bottom_y = y + radius,
+                left_x = x - radius,
             ));
         }
     }
@@ -700,6 +1344,19 @@ fn print_spike_summary(name: &str, spikes: &[SpikeEvent]) {
     println!("{name:>7} spikes total={total} per_channel=[{per_channel}]");
 }
 
+fn print_pattern_summary(name: &str, spikes: &[PatternSpike]) {
+    let total = spikes.len();
+    let active = (0..PATTERN_NEURONS)
+        .filter(|pattern| spikes.iter().any(|event| event.pattern == *pattern))
+        .count();
+    let top = top_pattern_counts(spikes, 8)
+        .into_iter()
+        .map(|(pattern, count)| format!("p{pattern:02}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    println!("{name:>7} spikes total={total} active_patterns={active} top=[{top}]");
+}
+
 fn print_output_summary(name: &str, spikes: &[OutputSpike]) {
     let total = spikes.len();
     let per_label = (0..SNN_OUTPUTS)
@@ -713,6 +1370,138 @@ fn print_output_summary(name: &str, spikes: &[OutputSpike]) {
         .collect::<Vec<_>>()
         .join(",");
     println!("{name:>7} spikes total={total} per_label=[{per_label}]");
+}
+
+fn print_gated_summary(name: &str, decisions: &[GatedDecision]) {
+    let total = decisions.len();
+    let timepoints = decisions
+        .iter()
+        .map(|decision| (decision.sample_index, decision.subslot))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let per_label = (0..SNN_OUTPUTS)
+        .map(|label| {
+            decisions
+                .iter()
+                .filter(|decision| decision.label == label)
+                .count()
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    println!("{name:>7} decisions total={total} timepoints={timepoints} per_label=[{per_label}]");
+}
+
+fn print_accordion_contribution_summary(
+    model: &AccordionLifModel,
+    pattern_spikes: &[PatternSpike],
+    gated: &[GatedDecision],
+    stored_labels: &[String; 3],
+) {
+    let mut pattern_counts = [0_usize; PATTERN_NEURONS];
+    for spike in pattern_spikes {
+        pattern_counts[spike.pattern] += 1;
+    }
+
+    let mut gated_counts = [0_usize; SNN_OUTPUTS];
+    for decision in gated {
+        gated_counts[decision.label] += 1;
+    }
+
+    let mut labels_to_explain = Vec::new();
+    for label in stored_labels {
+        if let Some(index) = label_index(label) {
+            labels_to_explain.push(index);
+        }
+    }
+    let mut gated_ranked = gated_counts.iter().copied().enumerate().collect::<Vec<_>>();
+    gated_ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (label, count) in gated_ranked.into_iter().take(5) {
+        if count > 0 {
+            labels_to_explain.push(label);
+        }
+    }
+    labels_to_explain.sort_unstable();
+    labels_to_explain.dedup();
+
+    println!();
+    println!("Accordion contribution diagnostics:");
+    for label in labels_to_explain {
+        let mut contributions = (0..PATTERN_NEURONS)
+            .filter(|pattern| pattern_counts[*pattern] > 0)
+            .map(|pattern| {
+                let count = pattern_counts[pattern] as i32;
+                let weight = model.label_weights[label][pattern] as i32;
+                let contribution = count * weight;
+                (pattern, count, weight, contribution)
+            })
+            .collect::<Vec<_>>();
+        let total: i32 = contributions
+            .iter()
+            .map(|(_, _, _, contribution)| *contribution)
+            .sum();
+        contributions.sort_by(|a, b| b.3.cmp(&a.3).then_with(|| a.0.cmp(&b.0)));
+
+        println!(
+            "  {} gated_count={} weighted_sum={}",
+            LABELS[label], gated_counts[label], total
+        );
+        for (pattern, count, weight, contribution) in contributions.iter().take(6) {
+            let name = model
+                .pattern_names
+                .get(*pattern)
+                .map(String::as_str)
+                .unwrap_or("unnamed pattern");
+            println!(
+                "    + p{pattern:02} count={count:>3} weight={weight:>5} contrib={contribution:>7} {name}"
+            );
+        }
+
+        let mut negative = contributions
+            .iter()
+            .filter(|(_, _, _, contribution)| *contribution < 0)
+            .copied()
+            .collect::<Vec<_>>();
+        negative.sort_by(|a, b| a.3.cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
+        for (pattern, count, weight, contribution) in negative.iter().take(3) {
+            let name = model
+                .pattern_names
+                .get(*pattern)
+                .map(String::as_str)
+                .unwrap_or("unnamed pattern");
+            println!(
+                "    - p{pattern:02} count={count:>3} weight={weight:>5} contrib={contribution:>7} {name}"
+            );
+        }
+    }
+    println!();
+}
+
+fn top_pattern_counts(spikes: &[PatternSpike], count: usize) -> Vec<(usize, usize)> {
+    let mut counts = (0..PATTERN_NEURONS)
+        .map(|pattern| {
+            (
+                pattern,
+                spikes
+                    .iter()
+                    .filter(|event| event.pattern == pattern)
+                    .count(),
+            )
+        })
+        .collect::<Vec<_>>();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts.truncate(count);
+    counts
+}
+
+fn label_index(label: &str) -> Option<usize> {
+    LABELS
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(label))
+}
+
+fn pattern_uses_sensor(weights: &[i16; SNN_INPUTS], sensor: usize) -> bool {
+    weights[sensor] > 0 || weights[ACTIVE_SENSORS + sensor] > 0
 }
 
 fn parse_csv_line(line: &str) -> Vec<String> {
@@ -827,11 +1616,53 @@ mod tests {
         let path = std::env::temp_dir().join("noseknows_spikes_model_test.nsm");
         fs::write(&path, text).expect("write model");
 
-        let model = load_lif_model(&path).expect("load model");
+        let model = load_snn_model(&path).expect("load model");
 
-        assert_eq!(model.threshold, 1000);
-        assert_eq!(model.decay_alpha_q8, 235);
-        assert_eq!(model.weights[0][0], 7);
+        match model {
+            SnnModel::Direct(model) => {
+                assert_eq!(model.threshold, 1000);
+                assert_eq!(model.decay_alpha_q8, 235);
+                assert_eq!(model.weights[0][0], 7);
+            }
+            SnnModel::Accordion(_) => panic!("expected direct model"),
+        }
+    }
+
+    #[test]
+    fn parses_accordion_model_weights() {
+        let mut text = String::from(
+            "NOSEKNOWS_SNN_ACCORDION_V1\nthreshold=1000\ndecay_alpha_q8=235\nlabels=Floral,Soft Floral,Floral Amber,Amber,Soft Amber,Woody Amber,Woods,Mossy Woods,Dry Woods,Aromatic,Citrus,Water,Green,Fruity\n",
+        );
+        for pattern in 0..PATTERN_NEURONS {
+            text.push_str(&format!(
+                "pattern.{pattern:02}.name=test pattern {pattern}\n"
+            ));
+            text.push_str(&format!(
+                "pattern.{pattern:02}.weights={}\n",
+                vec!["3"; SNN_INPUTS].join(",")
+            ));
+        }
+        for label in LABELS {
+            text.push_str("label_weights.");
+            text.push_str(label);
+            text.push('=');
+            text.push_str(&vec!["5"; PATTERN_NEURONS].join(","));
+            text.push('\n');
+        }
+        let path = std::env::temp_dir().join("noseknows_spikes_accordion_model_test.nsm");
+        fs::write(&path, text).expect("write model");
+
+        let model = load_snn_model(&path).expect("load model");
+
+        match model {
+            SnnModel::Accordion(model) => {
+                assert_eq!(model.threshold, 1000);
+                assert_eq!(model.pattern_weights[0][0], 3);
+                assert_eq!(model.label_weights[0][0], 5);
+                assert_eq!(model.pattern_names[3], "test pattern 3");
+            }
+            SnnModel::Direct(_) => panic!("expected accordion model"),
+        }
     }
 
     #[test]
@@ -839,6 +1670,86 @@ mod tests {
         let fields = parse_csv_line(r#"a,"b,c","d""e""#);
 
         assert_eq!(fields, vec!["a", "b,c", "d\"e"]);
+    }
+
+    #[test]
+    fn gated_readout_waits_for_enough_evidence() {
+        let mut config = test_config();
+        config.gate_min_top = 2;
+        config.gate_margin = 1;
+        config.gate_min_activity = 3;
+        let output = vec![
+            OutputSpike {
+                sample_index: 0,
+                subslot: 0,
+                label: 0,
+            },
+            OutputSpike {
+                sample_index: 1,
+                subslot: 0,
+                label: 0,
+            },
+        ];
+        let pattern = vec![
+            PatternSpike {
+                sample_index: 0,
+                subslot: 0,
+                pattern: 0,
+            },
+            PatternSpike {
+                sample_index: 0,
+                subslot: 1,
+                pattern: 1,
+            },
+            PatternSpike {
+                sample_index: 1,
+                subslot: 0,
+                pattern: 2,
+            },
+        ];
+
+        let decisions = gated_decisions(&output, Some(&pattern), None, 4, 2, &config);
+
+        assert!(!decisions.is_empty());
+        assert!(decisions.iter().all(|decision| decision.sample_index >= 1));
+        assert_eq!(decisions[0].label, 0);
+    }
+
+    #[test]
+    fn gated_readout_drops_old_evidence_outside_window() {
+        let mut config = test_config();
+        config.gate_min_top = 2;
+        config.gate_margin = 1;
+        config.gate_min_activity = 2;
+        config.gate_window_samples = 1;
+        let output = vec![
+            OutputSpike {
+                sample_index: 0,
+                subslot: 0,
+                label: 0,
+            },
+            OutputSpike {
+                sample_index: 1,
+                subslot: 0,
+                label: 0,
+            },
+        ];
+        let pattern = vec![
+            PatternSpike {
+                sample_index: 0,
+                subslot: 0,
+                pattern: 0,
+            },
+            PatternSpike {
+                sample_index: 1,
+                subslot: 0,
+                pattern: 1,
+            },
+        ];
+
+        let decisions = gated_decisions(&output, Some(&pattern), None, 3, 2, &config);
+
+        assert!(decisions.is_empty());
     }
 
     fn test_config() -> Config {
@@ -850,6 +1761,10 @@ mod tests {
             subslots: DEFAULT_SUBSLOTS,
             rate_budget: DEFAULT_RATE_BUDGET,
             latency_budget: DEFAULT_LATENCY_BUDGET,
+            gate_min_top: DEFAULT_GATE_MIN_TOP,
+            gate_margin: DEFAULT_GATE_MARGIN,
+            gate_min_activity: DEFAULT_GATE_MIN_ACTIVITY,
+            gate_window_samples: DEFAULT_GATE_WINDOW_SAMPLES,
         }
     }
 

@@ -9,6 +9,7 @@ const SAMPLE_PERIOD_MS: u64 = 100;
 const CLEAN_AIR_MIN: f32 = 150.0;
 const CLEAN_AIR_MAX: f32 = 300.0;
 const LN_10: f32 = 2.302_585_1;
+const NO_SCENT_LABEL: &str = "No Scent";
 const LABELS: [&str; 14] = [
     "Floral",
     "Soft Floral",
@@ -52,6 +53,8 @@ struct Config {
     samples: usize,
     seed: u64,
     mode: GenerationMode,
+    no_scent_ratio: f32,
+    single_note_ratio: f32,
 }
 
 #[derive(Clone)]
@@ -67,6 +70,13 @@ struct Profile {
 enum GenerationMode {
     Matrix,
     Designer,
+}
+
+#[derive(Clone, Copy)]
+enum MatrixSampleKind {
+    NoScent,
+    SingleNote,
+    MultiLabel,
 }
 
 struct PhaseProfile {
@@ -324,9 +334,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&config.out_dir)?;
 
     let mut rng = Lcg::new(config.seed);
+    let no_scent_target = if matches!(config.mode, GenerationMode::Matrix) {
+        ((config.samples as f32 * config.no_scent_ratio).round() as usize).min(config.samples)
+    } else {
+        0
+    };
+    let single_note_target = if matches!(config.mode, GenerationMode::Matrix) {
+        ((config.samples as f32 * config.single_note_ratio).round() as usize)
+            .min(config.samples - no_scent_target)
+    } else {
+        0
+    };
     for sample_index in 0..config.samples {
         let sample = match config.mode {
-            GenerationMode::Matrix => matrix_sample(sample_index, &mut rng),
+            GenerationMode::Matrix => matrix_sample(
+                sample_index,
+                &mut rng,
+                matrix_sample_kind(sample_index, no_scent_target, single_note_target),
+            ),
             GenerationMode::Designer => designer_sample(sample_index, &mut rng),
         };
         let path = config.out_dir.join(format!("{}.csv", sample.id));
@@ -401,6 +426,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
         config.out_dir.display()
     );
+    if matches!(config.mode, GenerationMode::Matrix) {
+        println!(
+            "Matrix mix: no_scent={} single_note={} multi_label={}",
+            no_scent_target,
+            single_note_target,
+            config.samples - no_scent_target - single_note_target
+        );
+    }
     Ok(())
 }
 
@@ -409,6 +442,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut samples = 100;
     let mut seed = 0x51a7_2026_u64;
     let mut mode = GenerationMode::Matrix;
+    let mut no_scent_ratio: f32 = 0.25;
+    let mut single_note_ratio: f32 = 0.0;
 
     let args: Vec<String> = env::args().skip(1).collect();
     let mut index = 0;
@@ -432,9 +467,23 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             "--designer" => {
                 mode = GenerationMode::Designer;
             }
+            "--no-scent-ratio" => {
+                index += 1;
+                no_scent_ratio = args
+                    .get(index)
+                    .ok_or("--no-scent-ratio requires a value")?
+                    .parse()?;
+            }
+            "--single-note-ratio" => {
+                index += 1;
+                single_note_ratio = args
+                    .get(index)
+                    .ok_or("--single-note-ratio requires a value")?
+                    .parse()?;
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer]"
+                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer] [--no-scent-ratio 0.25] [--single-note-ratio 0.0]"
                 );
                 std::process::exit(0);
             }
@@ -448,10 +497,18 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         samples,
         seed,
         mode,
+        no_scent_ratio: no_scent_ratio.clamp(0.0, 1.0),
+        single_note_ratio: single_note_ratio.clamp(0.0, 1.0),
     })
 }
 
-fn matrix_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
+fn matrix_sample(sample_index: usize, rng: &mut Lcg, kind: MatrixSampleKind) -> SyntheticSample {
+    match kind {
+        MatrixSampleKind::NoScent => return no_scent_sample(sample_index),
+        MatrixSampleKind::SingleNote => return single_note_sample(sample_index, rng),
+        MatrixSampleKind::MultiLabel => {}
+    }
+
     let labels = choose_labels(rng);
     SyntheticSample {
         id: format!("synthetic_{sample_index:04}"),
@@ -474,6 +531,49 @@ fn matrix_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
                 start_secs: 0.0,
             },
         ],
+    }
+}
+
+fn matrix_sample_kind(
+    sample_index: usize,
+    no_scent_target: usize,
+    single_note_target: usize,
+) -> MatrixSampleKind {
+    if sample_index < no_scent_target {
+        MatrixSampleKind::NoScent
+    } else if sample_index < no_scent_target + single_note_target {
+        MatrixSampleKind::SingleNote
+    } else {
+        MatrixSampleKind::MultiLabel
+    }
+}
+
+fn no_scent_sample(sample_index: usize) -> SyntheticSample {
+    SyntheticSample {
+        id: format!("no_scent_{sample_index:04}"),
+        name: format!("No Scent {sample_index:04}"),
+        labels: [NO_SCENT_LABEL, NO_SCENT_LABEL, NO_SCENT_LABEL],
+        phases: Vec::new(),
+    }
+}
+
+fn single_note_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
+    let label = LABELS[rng.range_usize(0, LABELS.len())];
+    SyntheticSample {
+        id: format!(
+            "single_{}_{sample_index:04}",
+            label
+                .to_ascii_lowercase()
+                .replace(' ', "_")
+                .replace('-', "_")
+        ),
+        name: format!("Single {label} {sample_index:04}"),
+        labels: [label, NO_SCENT_LABEL, NO_SCENT_LABEL],
+        phases: vec![PhaseProfile {
+            profile: varied_profile(profile_for_label(label), rng),
+            weight: 1.0,
+            start_secs: 0.0,
+        }],
     }
 }
 
@@ -869,5 +969,27 @@ mod tests {
         for label in LABELS {
             assert_eq!(profile_for_label(label).peak[MQ4_UNUSED], 0.0);
         }
+    }
+
+    #[test]
+    fn no_scent_sample_has_no_phases() {
+        let sample = no_scent_sample(7);
+
+        assert_eq!(
+            sample.labels,
+            [NO_SCENT_LABEL, NO_SCENT_LABEL, NO_SCENT_LABEL]
+        );
+        assert!(sample.phases.is_empty());
+    }
+
+    #[test]
+    fn single_note_sample_has_one_fragrance_phase() {
+        let mut rng = Lcg::new(123);
+        let sample = single_note_sample(4, &mut rng);
+
+        assert_ne!(sample.labels[0], NO_SCENT_LABEL);
+        assert_eq!(sample.labels[1], NO_SCENT_LABEL);
+        assert_eq!(sample.labels[2], NO_SCENT_LABEL);
+        assert_eq!(sample.phases.len(), 1);
     }
 }

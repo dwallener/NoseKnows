@@ -167,6 +167,32 @@ These files are deliberately artificial. They exist to exercise the data loader,
 
 The synthetic generator uses the numeric 14-subfamily matrix. Matrix values are treated as target 12-bit ADC peaks, inactive `0` entries become clean-air baseline values between `150` and `300`, and decay is modeled from the listed `T90` targets. Synthetic captures are 900 rows at 100 ms, or about 90 seconds, so the longer tails are visible.
 
+Matrix generation now includes no-scent examples by default:
+
+```text
+--no-scent-ratio 0.25
+```
+
+No-scent captures are written with:
+
+```text
+label_1,label_2,label_3 = No Scent,No Scent,No Scent
+```
+
+Training treats `No Scent` as a pseudo-label outside the 14 fragrance-wheel labels, producing an all-false 14-label target. This gives the gated readout explicit examples where it should stay silent.
+
+Single-note synthetic captures can also be generated when needed:
+
+```sh
+cargo run --bin synthesize -- --out data/raw --samples 100 --single-note-ratio 0.20
+```
+
+Single-note captures use one real fragrance label followed by two `No Scent` pseudo-labels, for example:
+
+```text
+Citrus,No Scent,No Scent
+```
+
 The matrix maps into the existing 9-column CSV shape as:
 
 ```text
@@ -246,13 +272,35 @@ Generate a self-contained SVG preview of spike encodings for one captured or syn
 cargo run --bin spikes -- --input data/raw/synthetic_0000.csv --out data/spikes.svg --model data/models/snn_lif.nsm --bins 180 --subslots 5 --rate-budget 5 --latency-budget 5
 ```
 
-The preview renders input spike-train panels over the same 9 ADC channels, then runs the mixed input stream through the saved SNN LIF model and renders the final 14 fragrance output spike trains:
+The preview renders input spike-train panels over the same 9 ADC channels, then runs the mixed input stream through the saved SNN model and renders downstream SNN spike trains. Direct LIF models render five panels:
 
 ```text
 pure latency  positive dV/dt maps to quantized sub-sample latency slots
 pure rate     log-scaled amplitude emits up to the rate budget per sample
 mixed         the union of rate events and latency events overlaid in one panel
 final layer   14 SNN output spike trains, one per fragrance-wheel label
+gated readout 14 label rows showing only decisions that clear the evidence gate
+```
+
+Accordion models add a sixth panel between `mixed` and `final layer`:
+
+```text
+accordion     64 emergent-pattern spike trains from the differentiation layer
+```
+
+The gated readout is a comparison output; it does not replace the raw final-layer spike panel. By default, it emits top-3 label decisions only when the accumulated readout satisfies:
+
+```text
+top label spike count in rolling window >= 3
+top label spike count - fourth label spike count in rolling window >= 1
+upstream activity in rolling window >= 12
+rolling window = 6 binned samples
+```
+
+Those thresholds can be tuned with:
+
+```sh
+--gate-min-top 3 --gate-margin 1 --gate-min-activity 12 --gate-window 6
 ```
 
 The visualizer now uses an event-list model instead of a boolean raster. With the default `5` subslots, latency is quantized into 20% buckets within each binned sample period. With the default `rate-budget=5` and `latency-budget=5`, each active encoded channel can emit up to `10` events per binned sample, or `80` total events across the 8 active SNN sensor channels.
@@ -264,7 +312,16 @@ inputs 0..7    rate streams for adc0..adc7
 inputs 8..15   latency streams for adc0..adc7
 ```
 
-The final output panel is accumulated LIF activity over the whole capture/window. Individual spike subslots update membrane state; they are not treated as mandatory per-subslot fragrance decisions.
+The final output panel is raw LIF output activity. Individual spike subslots update membrane state; they are not treated as mandatory per-subslot fragrance decisions. The gated readout panel is rolling-window evidence over recent output spikes and upstream activity, so labels can appear and disappear as evidence enters or leaves the live-style window.
+
+To keep no-scent captures from turning clean-air jitter into artificial spikes, the SNN encoder applies small absolute floors before per-capture normalization:
+
+```text
+minimum active channel range: 80 ADC counts
+minimum positive delta:       25 ADC counts
+```
+
+Channels below those floors stay silent for rate and latency encoding.
 
 ## SNN Training
 
@@ -274,16 +331,141 @@ Train the exploratory fixed-point LIF SNN against the simple synthetic captures:
 cargo run --bin snn_train -- --data data/raw --out data/models/snn_lif.nsm --epochs 250 --validation 0.2
 ```
 
+Train the first accordion SNN scaffold:
+
+```sh
+cargo run --bin snn_train -- --data data/raw --out data/models/snn_accordion.nsm --epochs 250 --validation 0.2 --accordion
+```
+
 By default, `snn_train` excludes `designer_*` phase-layered captures so the first SNN task stays focused on non-complex single-subfamily combinations. Use `--include-designer` later when we intentionally want phased top/heart/base training examples in this path.
 
-The current SNN scaffold has two training stages:
+The direct SNN scaffold has two training stages:
 
 1. A multilabel linear model learns from 16 spike-count features.
-2. A fixed-point LIF bank is initialized from that linear model and fine-tuned against top-3 label recovery.
+2. A fixed-point LIF bank is initialized from that linear model, including per-label bias, and fine-tuned against top-3 label recovery plus no-scent silence.
+
+The accordion scaffold inserts a differentiation layer:
+
+```text
+16 rate/latency spike streams
+  -> 64 seeded emergent-pattern LIF neurons with winner-take-few lateral inhibition
+  -> 14 fragrance-wheel label neurons
+```
+
+The 64 seeded mini-patterns are intentionally interpretable first guesses: single rate/latency channels, small co-activated sensor pairs, onset-plus-tail relationships, and broader cluster-history motifs. The first layer is not label-aware; the supervised training happens in the sparse `64 -> 14` label mapping.
+
+The accordion layer also applies a local sensory-adaptation rule to motifs involving `adc4` / IO18 / MQ-7. When one of those motifs fires, its effective threshold is temporarily raised and then decays each subslot:
+
+```text
+effective_threshold = base_threshold + adaptation[pattern]
+on adc4-linked pattern spike: adaptation += 450
+each subslot: adaptation *= 224 / 256
+adaptation cap: 2400
+```
+
+This preserves real onset evidence from the sticky sensor while attenuating sustained tail/DC-offset firing before it can dominate `Soft Amber` and `Woods` readout.
 
 The exported `.nsm` file is a separate SNN artifact from the transformer `.ntm` model files. Both paths share the same `data/raw/*.csv` captures, but the training code and inference assumptions remain separate.
 
 Current smoke-test behavior on the simple synthetic set is intentionally modest but correctly shaped: primary top-1 accuracy is still weak, while any-label top-3 recovery is high. That is enough for now to inspect spike encodings, LIF accumulation, and output spike trains before real repeated hardware captures exist.
+
+When `No Scent` samples are present, SNN training reports additional metrics:
+
+```text
+silence  percent of no-scent samples with no active label output
+fp       false-positive rate on no-scent samples
+```
+
+For no-scent rows, a silent output counts as success for the combined `p@1` and `any@3` scores. During LIF fine-tuning, no-scent samples use a separate suppression update: only labels that actually activate are pushed down, and with a smaller update than normal fragrance-label correction.
+
+Run the single-note/no-scent end-to-end SNN self-test:
+
+```sh
+cargo run --bin snn_selftest -- \
+  --data data/raw_single_note_probe \
+  --model data/models/snn_accordion_single_note_probe.nsm
+```
+
+The self-test reuses the same spike encoder, SNN model format, and rolling gated readout semantics as the SVG visualizer. It skips multi-label captures and checks only:
+
+```text
+No Scent     expected silent gated readout
+Single note  expected correct label as dominant gated readout
+```
+
+The default single-note rule is intentionally pragmatic rather than antiseptic:
+
+```text
+correct label decisions >= 3
+correct label has the highest decision count
+at most 2 other labels may appear
+each spillover label may appear at most 3 times
+```
+
+Those bounds can be adjusted with:
+
+```sh
+--min-correct 3 --max-spillover-labels 2 --max-spillover 3
+```
+
+As of this checkpoint, no-scent passes cleanly, while the stricter all-single-note check still exposes known class confusions and silent labels in the current accordion LIF readout. Treat this as a regression/self-test harness, not proof that the SNN classifier is finished.
+
+The self-test also prints a single-note confusion table. Current dominant-label failures are concentrated in a few useful buckets:
+
+```text
+Fruity -> Woods
+Green  -> Floral
+Water  -> Floral
+Amber / Floral Amber / Woody Amber / Dry Woods -> Silent
+```
+
+Some labels, such as `Floral`, `Soft Floral`, `Aromatic`, and `Mossy Woods`, often have the correct dominant label but still fail the stricter self-test because spillover persists too long. That points to label-side calibration/contrast rather than a broken spike encoder.
+
+The self-test also splits failures by where they first appear:
+
+```text
+raw_silent      raw final SNN output has no label spikes
+gate_silent     raw output exists, but rolling gate does not emit enough evidence
+wrong_dominant  gated output is dominated by the wrong label
+spillover       correct label dominates, but secondary labels persist too long
+```
+
+Current checkpoint:
+
+```text
+before targeted tuning: raw_silent=3 gate_silent=7 wrong_dominant=9 spillover=11 no_scent_fp=0
+after targeted tuning:  raw_silent=3 gate_silent=3 wrong_dominant=9 spillover=6  no_scent_fp=0
+```
+
+That means the base-note silence hypothesis is only partly a rolling-window issue: several heavy labels produce weak raw spikes that fail the gate, but some are already silent at the raw output layer. Fruity/Green/Water confusions are raw-label mapping problems rather than gated-readout artifacts.
+
+The first tuning pass is intentionally targeted:
+
+```text
+base-note gate policy:
+  Floral Amber, Amber, Woody Amber, Dry Woods
+  lower minimum gated count
+  longer rolling readout window
+
+top-note contrast:
+  Green and Water inhibit the generic Floral accumulator
+  inhibition is currently one LIF threshold per competing spike
+  Citrus is left alone while it remains clean
+
+mapping-prune deferred:
+  Fruity -> Woods needs contribution diagnostics before pruning Woods weights
+```
+
+The base-note gate policy improved the self-test materially. The Green/Water-vs-Floral collision improved in raw counts but still does not pass, so further improvement probably needs better label-side contrast/training or more discriminating motifs rather than simply increasing inhibition again.
+
+The SNN model export includes the learned readout bias:
+
+```text
+bias.<label>=...
+label_bias.<label>=...
+```
+
+Older `.nsm` files without bias still load with zero bias. New no-scent-trained models preserve the learned silent/no-report behavior in both training and spike preview.
 
 Current status:
 
@@ -292,8 +474,9 @@ Current status:
 - Transformer and SNN experiments share datasets but stay separate in code and model artifacts.
 - Synthetic captures let us test the full train/infer loop without claiming real-world scent accuracy.
 - The transformer model consumes one `32 x 9` downsampled time series per CSV and predicts the top 3 of the 14 fragrance-wheel labels.
-- The SNN model consumes mixed rate/latency spike events and accumulates activity in a 14-output fixed-point LIF bank.
+- The direct SNN model consumes mixed rate/latency spike events and accumulates activity in a 14-output fixed-point LIF bank.
+- The accordion SNN model expands those events through a 64-neuron differentiation layer before label mapping.
 - The present trainers are intentionally simple and CPU-only; they are scaffolding steps before more serious training infrastructure.
 - Training quality is now measured with a validation split and a simple baseline before we invest in end-to-end transformer backpropagation.
-- Spike-train previews are available for rate, latency, mixed encodings, and final SNN output activity.
+- Spike-train previews are available for rate, latency, mixed encodings, accordion pattern activity, raw final SNN output activity, and gated readout decisions.
 - SNN training now has a separate first-pass fixed-point LIF scaffold over the same CSV dataset format.

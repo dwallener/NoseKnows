@@ -24,6 +24,7 @@ const LABELS: [&str; 14] = [
     "Green",
     "Fruity",
 ];
+const NO_SCENT_LABEL: &str = "No Scent";
 
 #[derive(Clone)]
 struct Sample {
@@ -425,11 +426,18 @@ fn target_from_labels(
     let weights = [1.0_f32, 0.66, 0.33];
 
     for (label, weight) in labels.iter().zip(weights) {
+        if is_no_scent_label(label) {
+            continue;
+        }
         let index = label_index(label).ok_or_else(|| format!("unknown label: {label}"))?;
         target[index] = weight;
     }
 
     Ok(target)
+}
+
+fn is_no_scent_label(label: &str) -> bool {
+    normalize_label(label) == normalize_label(NO_SCENT_LABEL)
 }
 
 fn label_index(label: &str) -> Option<usize> {
@@ -892,6 +900,18 @@ mod tests {
         assert_eq!(target[label_index("Aromatic").unwrap()], 1.0);
         assert_eq!(target[label_index("Soft Amber").unwrap()], 0.66);
         assert_eq!(target[label_index("Dry Woods").unwrap()], 0.33);
+    }
+
+    #[test]
+    fn no_scent_labels_map_to_empty_target() {
+        let target = target_from_labels(&[
+            NO_SCENT_LABEL.to_string(),
+            NO_SCENT_LABEL.to_string(),
+            NO_SCENT_LABEL.to_string(),
+        ])
+        .expect("target");
+
+        assert!(target.iter().all(|value| *value == 0.0));
     }
 
     #[test]
