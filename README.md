@@ -262,6 +262,18 @@ cargo run --bin snn_stream_train -- --stream data/streams/smoke_stream.csv --out
 
 The initial smoke run produced a 14,400-row stream with exactly 50% no-scent rows and reached roughly 97% no-scent silence after three epochs. Treat this as a stream-training scaffold, not the final live classifier.
 
+Render a compact rolling timeline preview for the stream model with:
+
+```sh
+scripts/viz_snn_stream.sh
+```
+
+The preview writes `data/streams/stream_preview.svg` by default. It shows a bounded row window with a ground-truth strip, compact ADC traces, rolling rate/delta feature lanes, label evidence heatmap, and gated top-3 readout lanes. Use the optional script arguments to inspect a different stream/model/window:
+
+```sh
+scripts/viz_snn_stream.sh data/streams/snn_comprehensive_stream.csv data/models/snn_stream_readout.nsm data/streams/stream_preview.svg 0 3000
+```
+
 The matrix maps into the existing 9-column CSV shape as:
 
 ```text

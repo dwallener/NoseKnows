@@ -31,3 +31,20 @@ scripts/train_snn_stream.sh
 ```
 
 The initial stream model is intentionally separate from the capture-level accordion model. It trains a rolling, baseline-relative spike-feature readout over a labeled timeline where no-scent rows have all-false 14-label targets.
+
+Render a compact stream preview with:
+
+```sh
+scripts/viz_snn_stream.sh
+```
+
+Defaults:
+
+```text
+stream: data/streams/smoke_stream.csv
+model:  data/models/snn_stream_smoke.nsm
+out:    data/streams/stream_preview.svg
+rows:   3000
+```
+
+The stream preview is a horizontally compact timeline, not the capture-level spike poster. It renders ground truth, ADC traces, rolling input features, label evidence, and gated readout lanes over the selected row window.
