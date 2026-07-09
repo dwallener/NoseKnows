@@ -249,9 +249,11 @@ The effort presets scale both the stream/training run and the interactive viewer
 
 ```text
 default         8 captures per scent-count bucket,   3 epochs,  20,000 viewer rows
---work-harder  32 captures per scent-count bucket, 10 epochs, 200,000 viewer rows
---work-hardest 300 captures per scent-count bucket, 25 epochs,   2,000,000 viewer rows
+--work-harder  32 captures per scent-count bucket, 100 epochs, 200,000 viewer rows
+--work-hardest 300 captures per scent-count bucket, 1000 epochs,   2,000,000 viewer rows
 ```
+
+`PER_BUCKET_LIMIT` is the number of scent captures stitched from each balanced scent-count bucket: 1-note, 2-note, and 3-note. For example, `PER_BUCKET_LIMIT=32` means 32 single-note captures, 32 two-note captures, and 32 three-note captures are included before no-scent gaps are inserted.
 
 The viewer is downsampled into bounded buckets so it remains practical as a local HTML file. It includes a full-stream minimap, a scrub control, previous/next window buttons, and a jump-to-active button.
 

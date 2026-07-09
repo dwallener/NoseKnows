@@ -9,8 +9,10 @@ usage() {
   printf '\n'
   printf 'Effort presets:\n'
   printf '  default         PER_BUCKET_LIMIT=8    EPOCHS=3   VIEWER_ROWS=20000\n'
-  printf '%s\n' '  --work-harder  PER_BUCKET_LIMIT=32   EPOCHS=10  VIEWER_ROWS=200000'
-  printf '%s\n' '  --work-hardest PER_BUCKET_LIMIT=300  EPOCHS=25  VIEWER_ROWS=2000000'
+  printf '%s\n' '  --work-harder  PER_BUCKET_LIMIT=32   EPOCHS=100   VIEWER_ROWS=200000'
+  printf '%s\n' '  --work-hardest PER_BUCKET_LIMIT=300  EPOCHS=1000  VIEWER_ROWS=2000000'
+  printf '\n'
+  printf 'PER_BUCKET_LIMIT is the number of scent captures stitched from each balanced bucket: 1-note, 2-note, and 3-note.\n'
 }
 
 MODE=""
@@ -27,14 +29,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --work-harder)
       PER_BUCKET_LIMIT_DEFAULT=32
-      EPOCHS_DEFAULT=10
+      EPOCHS_DEFAULT=100
       VIEWER_ROWS_DEFAULT=200000
       MAX_BUCKETS_DEFAULT=20000
       shift
       ;;
     --work-hardest)
       PER_BUCKET_LIMIT_DEFAULT=300
-      EPOCHS_DEFAULT=25
+      EPOCHS_DEFAULT=1000
       VIEWER_ROWS_DEFAULT=2000000
       MAX_BUCKETS_DEFAULT=30000
       shift
