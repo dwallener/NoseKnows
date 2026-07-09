@@ -52,8 +52,8 @@ const LABELS: [&str; OUTPUTS] = [
 ];
 
 const LABEL_COLORS: [&str; OUTPUTS] = [
-    "#b44bb6", "#c46bbb", "#d36b93", "#b96a34", "#9b7a44", "#8c6a3f", "#627b3e",
-    "#4f7c5a", "#6a6254", "#3a8d76", "#d99a2b", "#3d93b8", "#4d9b4d", "#c85b5b",
+    "#b44bb6", "#c46bbb", "#d36b93", "#b96a34", "#9b7a44", "#8c6a3f", "#627b3e", "#4f7c5a",
+    "#6a6254", "#3a8d76", "#d99a2b", "#3d93b8", "#4d9b4d", "#c85b5b",
 ];
 
 struct Config {
@@ -207,9 +207,9 @@ fn build_frames(rows: &[StreamRow], model: &StreamModel) -> Vec<Frame> {
     for row in rows {
         let mut instant = [0.0_f32; FEATURES];
         for sensor in 0..ACTIVE_SENSORS {
-            let amplitude =
-                ((row.adc[sensor] - CLEAN_AIR_FLOOR_ADC) / (MAX_ADC - CLEAN_AIR_FLOOR_ADC))
-                    .clamp(0.0, 1.0);
+            let amplitude = ((row.adc[sensor] - CLEAN_AIR_FLOOR_ADC)
+                / (MAX_ADC - CLEAN_AIR_FLOOR_ADC))
+                .clamp(0.0, 1.0);
             instant[sensor] = rate_feature(amplitude, model.rate_budget);
 
             let delta = row.adc[sensor] - previous_adc[sensor];
@@ -250,20 +250,21 @@ fn render_svg(
     config: &Config,
     start_row: usize,
 ) -> String {
-    let left = 184.0_f32;
+    let left = 210.0_f32;
     let right = 28.0_f32;
     let top = 86.0_f32;
     let width = left + config.columns as f32 + right;
     let row_gap = 17.0_f32;
-    let feature_gap = 10.0_f32;
-    let pattern_gap = 5.5_f32;
-    let section_gap = 48.0_f32;
+    let feature_gap = 11.0_f32;
+    let pattern_gap = 7.0_f32;
+    let section_gap = 54.0_f32;
+    let truth_height = 58.0_f32;
     let adc_height = CHANNELS as f32 * row_gap;
     let feature_height = FEATURES as f32 * feature_gap;
     let pattern_height = PATTERN_NEURONS as f32 * pattern_gap;
     let label_height = OUTPUTS as f32 * row_gap;
     let total_height = top
-        + 30.0
+        + truth_height
         + adc_height
         + section_gap
         + feature_height
@@ -296,16 +297,37 @@ fn render_svg(
 
     let mut y = top;
     render_truth_strip(&mut svg, rows, left, y, config.columns as f32, start_row);
-    y += 30.0;
+    y += truth_height;
     render_adc(&mut svg, rows, left, y, config.columns as f32);
     y += adc_height + section_gap;
-    render_features(&mut svg, frames, left, y, config.columns as f32, feature_gap);
+    render_features(
+        &mut svg,
+        frames,
+        left,
+        y,
+        config.columns as f32,
+        feature_gap,
+    );
     y += feature_height + section_gap;
-    render_accordion(&mut svg, frames, left, y, config.columns as f32, pattern_gap);
+    render_accordion(
+        &mut svg,
+        frames,
+        left,
+        y,
+        config.columns as f32,
+        pattern_gap,
+    );
     y += pattern_height + section_gap;
     render_label_heatmap(&mut svg, frames, left, y, config.columns as f32);
     y += label_height + section_gap;
-    render_gated(&mut svg, frames, left, y, config.columns as f32, config.gate_threshold);
+    render_gated(
+        &mut svg,
+        frames,
+        left,
+        y,
+        config.columns as f32,
+        config.gate_threshold,
+    );
     let _ = writeln!(svg, "</svg>");
     svg
 }
@@ -432,21 +454,37 @@ fn render_features(
         };
         label(svg, &name, row_y + 4.0);
         if feature == ACTIVE_SENSORS {
-            line(svg, left, row_y - 4.0, left + panel_width, row_y - 4.0, "#c8d1d1", 1.0);
+            line(
+                svg,
+                left,
+                row_y - 4.0,
+                left + panel_width,
+                row_y - 4.0,
+                "#c8d1d1",
+                1.0,
+            );
         }
-        heat_row(svg, frames.len(), panel_width as usize, left, row_y, 6.0, |start, end| {
-            let mut sum = 0.0;
-            let mut count = 0.0;
-            for frame in &frames[start..end] {
-                sum += frame.features[feature];
-                count += 1.0;
-            }
-            if count > 0.0 {
-                (sum / count).clamp(0.0, 1.0)
-            } else {
-                0.0
-            }
-        });
+        heat_row(
+            svg,
+            frames.len(),
+            panel_width as usize,
+            left,
+            row_y,
+            6.0,
+            |start, end| {
+                let mut sum = 0.0;
+                let mut count = 0.0;
+                for frame in &frames[start..end] {
+                    sum += frame.features[feature];
+                    count += 1.0;
+                }
+                if count > 0.0 {
+                    (sum / count).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            },
+        );
     }
 }
 
@@ -472,7 +510,15 @@ fn render_accordion(
     ];
     for (group_start, group_name) in groups {
         let group_y = y + group_start as f32 * pattern_gap - 1.0;
-        line(svg, left, group_y, left + panel_width, group_y, "#c8d1d1", 1.0);
+        line(
+            svg,
+            left,
+            group_y,
+            left + panel_width,
+            group_y,
+            "#c8d1d1",
+            1.0,
+        );
         let _ = writeln!(
             svg,
             r#"<text x="18" y="{:.1}" class="tiny">{group_name}</text>"#,
@@ -483,21 +529,29 @@ fn render_accordion(
     for pattern in 0..PATTERN_NEURONS {
         let row_y = y + pattern as f32 * pattern_gap;
         if pattern % 4 == 0 {
-            label(svg, &format!("p{pattern:02}"), row_y + 3.5);
+            label_at(svg, 88.0, &format!("p{pattern:02}"), row_y + 3.5);
         }
-        heat_row(svg, frames.len(), panel_width as usize, left, row_y, 3.8, |start, end| {
-            let mut sum = 0.0;
-            let mut count = 0.0;
-            for frame in &frames[start..end] {
-                sum += frame.patterns[pattern];
-                count += 1.0;
-            }
-            if count > 0.0 {
-                (sum / count).clamp(0.0, 1.0)
-            } else {
-                0.0
-            }
-        });
+        heat_row(
+            svg,
+            frames.len(),
+            panel_width as usize,
+            left,
+            row_y,
+            3.8,
+            |start, end| {
+                let mut sum = 0.0;
+                let mut count = 0.0;
+                for frame in &frames[start..end] {
+                    sum += frame.patterns[pattern];
+                    count += 1.0;
+                }
+                if count > 0.0 {
+                    (sum / count).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            },
+        );
     }
 }
 
@@ -516,19 +570,27 @@ fn render_label_heatmap(svg: &mut String, frames: &[Frame], left: f32, y: f32, p
         let row_y = y + label_index as f32 * 18.0;
         label(svg, LABELS[label_index], row_y + 4.0);
         line(svg, left, row_y, left + panel_width, row_y, GRID, 1.0);
-        heat_row(svg, frames.len(), panel_width as usize, left, row_y - 5.0, 10.0, |start, end| {
-            let mut sum = 0.0;
-            let mut count = 0.0;
-            for frame in &frames[start..end] {
-                sum += frame.logits[label_index].max(0.0) / max_abs;
-                count += 1.0;
-            }
-            if count > 0.0 {
-                (sum / count).clamp(0.0, 1.0)
-            } else {
-                0.0
-            }
-        });
+        heat_row(
+            svg,
+            frames.len(),
+            panel_width as usize,
+            left,
+            row_y - 5.0,
+            10.0,
+            |start, end| {
+                let mut sum = 0.0;
+                let mut count = 0.0;
+                for frame in &frames[start..end] {
+                    sum += frame.logits[label_index].max(0.0) / max_abs;
+                    count += 1.0;
+                }
+                if count > 0.0 {
+                    (sum / count).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            },
+        );
     }
 }
 
@@ -664,10 +726,7 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
         for (channel, field_index) in adc_indexes.iter().enumerate() {
             adc[channel] = fields[*field_index].parse::<f32>().unwrap_or(0.0);
         }
-        rows.push(StreamRow {
-            target,
-            adc,
-        });
+        rows.push(StreamRow { target, adc });
     }
     Ok(rows)
 }
@@ -882,9 +941,13 @@ fn latency_feature(delta_adc: f32, budget: usize) -> f32 {
 }
 
 fn label(svg: &mut String, text: &str, y: f32) {
+    label_at(svg, 18.0, text, y);
+}
+
+fn label_at(svg: &mut String, x: f32, text: &str, y: f32) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{y:.1}" class="small">{}</text>"#,
+        r#"<text x="{x:.1}" y="{y:.1}" class="small">{}</text>"#,
         escape_xml(text)
     );
 }
@@ -952,8 +1015,8 @@ mod tests {
 
     #[test]
     fn baseline_relative_rate_keeps_clean_air_silent() {
-        let amplitude = ((250.0 - CLEAN_AIR_FLOOR_ADC) / (MAX_ADC - CLEAN_AIR_FLOOR_ADC))
-            .clamp(0.0, 1.0);
+        let amplitude =
+            ((250.0 - CLEAN_AIR_FLOOR_ADC) / (MAX_ADC - CLEAN_AIR_FLOOR_ADC)).clamp(0.0, 1.0);
         assert_eq!(rate_feature(amplitude, 5), 0.0);
     }
 }
