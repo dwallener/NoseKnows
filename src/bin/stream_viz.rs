@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 const CHANNELS: usize = 9;
 const ACTIVE_SENSORS: usize = 8;
 const FEATURES: usize = ACTIVE_SENSORS * 2;
+const PATTERN_NEURONS: usize = 64;
 const OUTPUTS: usize = 14;
 const MAX_ADC: f32 = 4095.0;
 const CLEAN_AIR_FLOOR_ADC: f32 = 300.0;
@@ -81,7 +82,12 @@ struct StreamModel {
 
 struct Frame {
     features: [f32; FEATURES],
+    patterns: [f32; PATTERN_NEURONS],
     logits: [f32; OUTPUTS],
+}
+
+struct PatternBank {
+    weights: [[i16; FEATURES]; PATTERN_NEURONS],
 }
 
 fn main() {
@@ -196,6 +202,7 @@ fn build_frames(rows: &[StreamRow], model: &StreamModel) -> Vec<Frame> {
     let mut history = Vec::new();
     let mut frames = Vec::with_capacity(rows.len());
     let mut previous_adc = rows[0].adc;
+    let patterns = PatternBank::seeded();
 
     for row in rows {
         let mut instant = [0.0_f32; FEATURES];
@@ -228,6 +235,7 @@ fn build_frames(rows: &[StreamRow], model: &StreamModel) -> Vec<Frame> {
         }
         frames.push(Frame {
             features,
+            patterns: patterns.forward(&features),
             logits: model.predict(&features),
         });
     }
@@ -248,15 +256,19 @@ fn render_svg(
     let width = left + config.columns as f32 + right;
     let row_gap = 17.0_f32;
     let feature_gap = 10.0_f32;
+    let pattern_gap = 5.5_f32;
     let section_gap = 48.0_f32;
     let adc_height = CHANNELS as f32 * row_gap;
     let feature_height = FEATURES as f32 * feature_gap;
+    let pattern_height = PATTERN_NEURONS as f32 * pattern_gap;
     let label_height = OUTPUTS as f32 * row_gap;
     let total_height = top
         + 30.0
         + adc_height
         + section_gap
         + feature_height
+        + section_gap
+        + pattern_height
         + section_gap
         + label_height
         + section_gap
@@ -289,6 +301,8 @@ fn render_svg(
     y += adc_height + section_gap;
     render_features(&mut svg, frames, left, y, config.columns as f32, feature_gap);
     y += feature_height + section_gap;
+    render_accordion(&mut svg, frames, left, y, config.columns as f32, pattern_gap);
+    y += pattern_height + section_gap;
     render_label_heatmap(&mut svg, frames, left, y, config.columns as f32);
     y += label_height + section_gap;
     render_gated(&mut svg, frames, left, y, config.columns as f32, config.gate_threshold);
@@ -425,6 +439,57 @@ fn render_features(
             let mut count = 0.0;
             for frame in &frames[start..end] {
                 sum += frame.features[feature];
+                count += 1.0;
+            }
+            if count > 0.0 {
+                (sum / count).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        });
+    }
+}
+
+fn render_accordion(
+    svg: &mut String,
+    frames: &[Frame],
+    left: f32,
+    y: f32,
+    panel_width: f32,
+    pattern_gap: f32,
+) {
+    let _ = writeln!(
+        svg,
+        r#"<text x="18" y="{:.1}" class="section">accordion motifs</text><text x="18" y="{:.1}" class="tiny">64 seeded pattern responses over rolling input features</text>"#,
+        y - 18.0,
+        y - 5.0
+    );
+    let groups = [
+        (0, "single"),
+        (16, "pair"),
+        (32, "onset/tail"),
+        (48, "cluster"),
+    ];
+    for (group_start, group_name) in groups {
+        let group_y = y + group_start as f32 * pattern_gap - 1.0;
+        line(svg, left, group_y, left + panel_width, group_y, "#c8d1d1", 1.0);
+        let _ = writeln!(
+            svg,
+            r#"<text x="18" y="{:.1}" class="tiny">{group_name}</text>"#,
+            group_y + 6.0
+        );
+    }
+
+    for pattern in 0..PATTERN_NEURONS {
+        let row_y = y + pattern as f32 * pattern_gap;
+        if pattern % 4 == 0 {
+            label(svg, &format!("p{pattern:02}"), row_y + 3.5);
+        }
+        heat_row(svg, frames.len(), panel_width as usize, left, row_y, 3.8, |start, end| {
+            let mut sum = 0.0;
+            let mut count = 0.0;
+            for frame in &frames[start..end] {
+                sum += frame.patterns[pattern];
                 count += 1.0;
             }
             if count > 0.0 {
@@ -665,6 +730,136 @@ impl StreamModel {
             }
         }
         logits
+    }
+}
+
+impl PatternBank {
+    fn seeded() -> Self {
+        let mut weights = [[-60_i16; FEATURES]; PATTERN_NEURONS];
+
+        for input in 0..FEATURES {
+            weights[input] = [-90; FEATURES];
+            weights[input][input] = 980;
+            weights[input][paired_stream(input)] = 180;
+        }
+
+        let pairs = [
+            [0, 2],
+            [0, 3],
+            [2, 3],
+            [1, 7],
+            [1, 4],
+            [4, 6],
+            [4, 7],
+            [0, 7],
+            [1, 3],
+            [3, 4],
+            [6, 7],
+            [0, 4],
+            [1, 6],
+            [2, 7],
+            [1, 2],
+            [3, 7],
+        ];
+        for (offset, sensors) in pairs.iter().enumerate() {
+            set_sensor_motif(&mut weights[16 + offset], sensors, 500, 420, -80);
+        }
+
+        let onset_tail = [
+            ([0, 2, 3], [7, 7]),
+            ([0, 1, 3], [4, 7]),
+            ([1, 3, 7], [4, 4]),
+            ([1, 2, 7], [0, 0]),
+            ([3, 4, 7], [6, 6]),
+            ([4, 6, 7], [0, 0]),
+            ([0, 4, 6], [7, 7]),
+            ([1, 4, 6], [7, 7]),
+            ([0, 1, 7], [2, 2]),
+            ([2, 3, 7], [1, 1]),
+            ([0, 3, 4], [6, 6]),
+            ([1, 6, 7], [4, 4]),
+            ([0, 2, 7], [3, 3]),
+            ([1, 3, 4], [7, 7]),
+            ([0, 6, 7], [4, 4]),
+            ([2, 4, 7], [1, 1]),
+        ];
+        for (offset, (fast, tail)) in onset_tail.iter().enumerate() {
+            let pattern = 32 + offset;
+            weights[pattern] = [-85; FEATURES];
+            for sensor in fast {
+                weights[pattern][ACTIVE_SENSORS + *sensor] = 430;
+            }
+            for sensor in tail {
+                weights[pattern][*sensor] = 360;
+            }
+        }
+
+        let clusters: [&[usize]; 16] = [
+            &[0, 2, 3],
+            &[1, 7],
+            &[1, 3, 7],
+            &[0, 1, 7],
+            &[1, 4, 7],
+            &[1, 4, 6, 7],
+            &[0, 4, 7],
+            &[0, 4, 6, 7],
+            &[0, 7],
+            &[0, 1, 4, 7],
+            &[0, 4, 6],
+            &[1, 3, 4, 7],
+            &[0, 1, 2],
+            &[2, 3, 4],
+            &[4, 6],
+            &[0, 1, 3, 6],
+        ];
+        for (offset, sensors) in clusters.iter().enumerate() {
+            let pattern = 48 + offset;
+            let rate_weight = if offset % 2 == 0 { 380 } else { 260 };
+            let latency_weight = if offset % 2 == 0 { 260 } else { 380 };
+            set_sensor_motif(
+                &mut weights[pattern],
+                sensors,
+                rate_weight,
+                latency_weight,
+                -70,
+            );
+        }
+
+        Self { weights }
+    }
+
+    fn forward(&self, features: &[f32; FEATURES]) -> [f32; PATTERN_NEURONS] {
+        let mut values = [0.0_f32; PATTERN_NEURONS];
+        for (pattern, value) in values.iter_mut().enumerate() {
+            let mut weighted_sum = 0.0;
+            for (feature, feature_value) in features.iter().enumerate() {
+                weighted_sum += self.weights[pattern][feature] as f32 * feature_value;
+            }
+            *value = (weighted_sum / 1200.0).clamp(0.0, 1.0);
+        }
+        values
+    }
+}
+
+fn paired_stream(input: usize) -> usize {
+    if input < ACTIVE_SENSORS {
+        ACTIVE_SENSORS + input
+    } else {
+        input - ACTIVE_SENSORS
+    }
+}
+
+fn set_sensor_motif(
+    weights: &mut [i16; FEATURES],
+    sensors: &[usize],
+    rate_weight: i16,
+    latency_weight: i16,
+    background: i16,
+) {
+    *weights = [background; FEATURES];
+    for sensor in sensors {
+        weights[*sensor] = rate_weight;
+        weights[ACTIVE_SENSORS + *sensor] = latency_weight;
     }
 }
 

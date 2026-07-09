@@ -268,7 +268,7 @@ Render a compact rolling timeline preview for the stream model with:
 scripts/viz_snn_stream.sh
 ```
 
-The preview writes `data/streams/stream_preview.svg` by default. It shows a bounded row window with a ground-truth strip, compact ADC traces, rolling rate/delta feature lanes, label evidence heatmap, and gated top-3 readout lanes. Use the optional script arguments to inspect a different stream/model/window:
+The preview writes `data/streams/stream_preview.svg` by default. It shows a bounded row window with a ground-truth strip, compact ADC traces, rolling rate/delta feature lanes, a diagnostic 64-motif accordion panel, label evidence heatmap, and gated top-3 readout lanes. The current stream readout model still trains on the 16 rolling input features; the accordion panel exposes the seeded motif responses we expect to move into the stream model next. Use the optional script arguments to inspect a different stream/model/window:
 
 ```sh
 scripts/viz_snn_stream.sh data/streams/snn_comprehensive_stream.csv data/models/snn_stream_readout.nsm data/streams/stream_preview.svg 0 3000
