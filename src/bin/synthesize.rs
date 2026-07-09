@@ -55,6 +55,8 @@ struct Config {
     mode: GenerationMode,
     no_scent_ratio: f32,
     single_note_ratio: f32,
+    probe_variants: usize,
+    probe_no_scent_samples: usize,
 }
 
 #[derive(Clone)]
@@ -345,7 +347,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rng = Lcg::new(config.seed);
     if let GenerationMode::Probe(mode) = config.mode {
-        let samples = probe_samples(mode, &mut rng);
+        let samples = probe_samples(
+            mode,
+            config.probe_variants,
+            config.probe_no_scent_samples,
+            &mut rng,
+        );
         write_samples(&config.out_dir, &samples, &mut rng)?;
         println!(
             "Wrote {} self-test probe CSV files to {}",
@@ -479,6 +486,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut mode = GenerationMode::Matrix;
     let mut no_scent_ratio: f32 = 0.25;
     let mut single_note_ratio: f32 = 0.0;
+    let mut probe_variants = 1;
+    let mut probe_no_scent_samples = 50;
     let mut explicit_out = false;
 
     let args: Vec<String> = env::args().skip(1).collect();
@@ -524,9 +533,23 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                     .ok_or("--single-note-ratio requires a value")?
                     .parse()?;
             }
+            "--variants" => {
+                index += 1;
+                probe_variants = args
+                    .get(index)
+                    .ok_or("--variants requires a value")?
+                    .parse()?;
+            }
+            "--no-scent-samples" => {
+                index += 1;
+                probe_no_scent_samples = args
+                    .get(index)
+                    .ok_or("--no-scent-samples requires a value")?
+                    .parse()?;
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer] [--probe no-scent|single|two|three|all] [--no-scent-ratio 0.25] [--single-note-ratio 0.0]"
+                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer] [--probe no-scent|single|two|three|all] [--variants 1] [--no-scent-samples 50] [--no-scent-ratio 0.25] [--single-note-ratio 0.0]"
                 );
                 std::process::exit(0);
             }
@@ -548,6 +571,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         mode,
         no_scent_ratio: no_scent_ratio.clamp(0.0, 1.0),
         single_note_ratio: single_note_ratio.clamp(0.0, 1.0),
+        probe_variants: probe_variants.max(1),
+        probe_no_scent_samples,
     })
 }
 
@@ -650,23 +675,33 @@ fn single_note_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
     }
 }
 
-fn probe_samples(mode: ProbeMode, rng: &mut Lcg) -> Vec<SyntheticSample> {
+fn probe_samples(
+    mode: ProbeMode,
+    variants: usize,
+    no_scent_samples: usize,
+    rng: &mut Lcg,
+) -> Vec<SyntheticSample> {
     let mut samples = Vec::new();
     if matches!(mode, ProbeMode::NoScent | ProbeMode::All) {
-        for index in 0..50 {
+        for index in 0..no_scent_samples {
             samples.push(no_scent_sample(index));
         }
     }
     if matches!(mode, ProbeMode::Single | ProbeMode::All) {
-        for (index, label) in LABELS.iter().enumerate() {
-            samples.push(exhaustive_note_sample(
-                format!("single_{}", label_slug(label)),
-                format!("Single {label}"),
-                [*label, NO_SCENT_LABEL, NO_SCENT_LABEL],
-                &[(label, 1.0)],
-                rng,
-                index,
-            ));
+        let mut index = 0;
+        for label in LABELS {
+            for variant in 0..variants {
+                samples.push(exhaustive_note_sample(
+                    format!("single_{}", label_slug(label)),
+                    format!("Single {label}"),
+                    [label, NO_SCENT_LABEL, NO_SCENT_LABEL],
+                    &[(label, 1.0)],
+                    rng,
+                    index,
+                    variant,
+                ));
+                index += 1;
+            }
         }
     }
     if matches!(mode, ProbeMode::Two | ProbeMode::All) {
@@ -674,15 +709,18 @@ fn probe_samples(mode: ProbeMode, rng: &mut Lcg) -> Vec<SyntheticSample> {
         for first in 0..LABELS.len() {
             for second in first + 1..LABELS.len() {
                 let labels = [LABELS[first], LABELS[second], NO_SCENT_LABEL];
-                samples.push(exhaustive_note_sample(
-                    format!("two_{}_{}", label_slug(labels[0]), label_slug(labels[1])),
-                    format!("Two {} + {}", labels[0], labels[1]),
-                    labels,
-                    &[(labels[0], 1.0), (labels[1], 0.66)],
-                    rng,
-                    index,
-                ));
-                index += 1;
+                for variant in 0..variants {
+                    samples.push(exhaustive_note_sample(
+                        format!("two_{}_{}", label_slug(labels[0]), label_slug(labels[1])),
+                        format!("Two {} + {}", labels[0], labels[1]),
+                        labels,
+                        &[(labels[0], 1.0), (labels[1], 0.66)],
+                        rng,
+                        index,
+                        variant,
+                    ));
+                    index += 1;
+                }
             }
         }
     }
@@ -692,20 +730,23 @@ fn probe_samples(mode: ProbeMode, rng: &mut Lcg) -> Vec<SyntheticSample> {
             for second in first + 1..LABELS.len() {
                 for third in second + 1..LABELS.len() {
                     let labels = [LABELS[first], LABELS[second], LABELS[third]];
-                    samples.push(exhaustive_note_sample(
-                        format!(
-                            "three_{}_{}_{}",
-                            label_slug(labels[0]),
-                            label_slug(labels[1]),
-                            label_slug(labels[2])
-                        ),
-                        format!("Three {} + {} + {}", labels[0], labels[1], labels[2]),
-                        labels,
-                        &[(labels[0], 1.0), (labels[1], 0.66), (labels[2], 0.33)],
-                        rng,
-                        index,
-                    ));
-                    index += 1;
+                    for variant in 0..variants {
+                        samples.push(exhaustive_note_sample(
+                            format!(
+                                "three_{}_{}_{}",
+                                label_slug(labels[0]),
+                                label_slug(labels[1]),
+                                label_slug(labels[2])
+                            ),
+                            format!("Three {} + {} + {}", labels[0], labels[1], labels[2]),
+                            labels,
+                            &[(labels[0], 1.0), (labels[1], 0.66), (labels[2], 0.33)],
+                            rng,
+                            index,
+                            variant,
+                        ));
+                        index += 1;
+                    }
                 }
             }
         }
@@ -720,10 +761,11 @@ fn exhaustive_note_sample(
     weighted_labels: &[(&'static str, f32)],
     rng: &mut Lcg,
     index: usize,
+    variant: usize,
 ) -> SyntheticSample {
     SyntheticSample {
-        id: format!("{id_prefix}_{index:04}"),
-        name: format!("{name} {index:04}"),
+        id: format!("{id_prefix}_{index:04}_v{variant:02}"),
+        name: format!("{name} {index:04} variant {variant:02}"),
         labels,
         phases: weighted_labels
             .iter()
@@ -1178,7 +1220,7 @@ mod tests {
     #[test]
     fn two_note_probe_has_all_pair_combinations() {
         let mut rng = Lcg::new(123);
-        let samples = probe_samples(ProbeMode::Two, &mut rng);
+        let samples = probe_samples(ProbeMode::Two, 1, 50, &mut rng);
 
         assert_eq!(samples.len(), 91);
         assert!(samples
@@ -1196,7 +1238,7 @@ mod tests {
     #[test]
     fn three_note_probe_has_all_triple_combinations() {
         let mut rng = Lcg::new(123);
-        let samples = probe_samples(ProbeMode::Three, &mut rng);
+        let samples = probe_samples(ProbeMode::Three, 1, 50, &mut rng);
 
         assert_eq!(samples.len(), 364);
         assert!(samples
@@ -1208,12 +1250,25 @@ mod tests {
     #[test]
     fn all_probe_keeps_buckets_segregated_by_label_count() {
         let mut rng = Lcg::new(123);
-        let samples = probe_samples(ProbeMode::All, &mut rng);
+        let samples = probe_samples(ProbeMode::All, 1, 50, &mut rng);
 
         assert_eq!(samples.len(), 519);
         assert_eq!(
             probe_mix_summary(&samples),
             "no_scent=50 single_note=14 two_note=91 three_note=364"
         );
+    }
+
+    #[test]
+    fn probe_variants_multiply_fragrance_combinations() {
+        let mut rng = Lcg::new(123);
+        let samples = probe_samples(ProbeMode::All, 3, 25, &mut rng);
+
+        assert_eq!(samples.len(), 25 + (14 + 91 + 364) * 3);
+        assert_eq!(
+            probe_mix_summary(&samples),
+            "no_scent=25 single_note=42 two_note=273 three_note=1092"
+        );
+        assert!(samples.iter().any(|sample| sample.id.ends_with("_v02")));
     }
 }

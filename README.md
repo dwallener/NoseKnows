@@ -196,6 +196,12 @@ Citrus,No Scent,No Scent
 For SNN self-test fixtures, keep probe types segregated under `data/selftest/`:
 
 ```sh
+scripts/snn_selftest_full.sh
+```
+
+The script regenerates stored probe datasets under `data/selftest/generated/`, runs all four display rubrics, and continues through every rubric even when a failing case returns nonzero. To generate the manual default probe directories one at a time:
+
+```sh
 cargo run --bin synthesize -- --probe no-scent
 cargo run --bin synthesize -- --probe single
 cargo run --bin synthesize -- --probe two
@@ -212,6 +218,26 @@ data/selftest/three_note  364 three-label combinations
 ```
 
 The CSVs are generated data and are ignored by git. The directory contract is tracked in `data/selftest/README.md`.
+
+Build the current comprehensive SNN training dataset with:
+
+```sh
+scripts/build_snn_training_dataset.sh
+```
+
+By default this writes `data/training/snn_comprehensive` with 100 no-scent captures and 4 randomized variants for every single-, two-, and three-note combination:
+
+```text
+no_scent=100 single_note=56 two_note=364 three_note=1456 total=1976
+```
+
+This dataset is intended to train and stress the SNN path across clean air, single labels, and simple blends without mixing in designer-phase captures. An initial accordion training smoke test over the full set loaded 1,976 captures and reached high any-in-top-3 recovery on fragrance samples, but still produced false-positive label output for no-scent cases. Treat the comprehensive set as ready for training experiments, not as proof that the current SNN objective/readout is finished.
+
+Train against the comprehensive SNN set with:
+
+```sh
+cargo run --bin snn_train -- --data data/training/snn_comprehensive --out data/models/snn_accordion_comprehensive.nsm --epochs 250 --validation 0.2 --accordion
+```
 
 The matrix maps into the existing 9-column CSV shape as:
 
