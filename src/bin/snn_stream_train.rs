@@ -71,6 +71,27 @@ struct Metrics {
     false_positive: f32,
 }
 
+#[derive(Default, Clone, Copy)]
+struct BucketReport {
+    total: usize,
+    p_at_1: usize,
+    any_at_3: usize,
+    covered_labels: usize,
+    target_labels: usize,
+    emitted: usize,
+    silent: usize,
+    false_positive: usize,
+}
+
+#[derive(Default, Clone, Copy)]
+struct LabelReport {
+    support: usize,
+    predicted: usize,
+    true_positive: usize,
+    false_positive: usize,
+    false_negative: usize,
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("snn_stream_train error: {error}");
@@ -145,6 +166,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         best_validation.silence * 100.0,
         best_validation.false_positive * 100.0
     );
+    print_validation_report(&best_model, &frames[train_count..]);
     save_model(&config.output_path, &config, &best_model)?;
     println!("Saved stream model to {}", config.output_path.display());
     Ok(())
@@ -176,7 +198,10 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--epochs" => {
                 index += 1;
-                epochs = args.get(index).ok_or("--epochs requires a value")?.parse()?;
+                epochs = args
+                    .get(index)
+                    .ok_or("--epochs requires a value")?
+                    .parse()?;
             }
             "--lr" => {
                 index += 1;
@@ -191,11 +216,17 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--window" => {
                 index += 1;
-                window = args.get(index).ok_or("--window requires a value")?.parse()?;
+                window = args
+                    .get(index)
+                    .ok_or("--window requires a value")?
+                    .parse()?;
             }
             "--stride" => {
                 index += 1;
-                stride = args.get(index).ok_or("--stride requires a value")?.parse()?;
+                stride = args
+                    .get(index)
+                    .ok_or("--stride requires a value")?
+                    .parse()?;
             }
             "--rate-budget" => {
                 index += 1;
@@ -256,9 +287,9 @@ fn build_frames(rows: &[StreamRow], config: &Config) -> Vec<Frame> {
     for (row_index, row) in rows.iter().enumerate() {
         let mut instant = [0.0_f32; FEATURES];
         for sensor in 0..ACTIVE_SENSORS {
-            let amplitude =
-                ((row.adc[sensor] - CLEAN_AIR_FLOOR_ADC) / (MAX_ADC - CLEAN_AIR_FLOOR_ADC))
-                    .clamp(0.0, 1.0);
+            let amplitude = ((row.adc[sensor] - CLEAN_AIR_FLOOR_ADC)
+                / (MAX_ADC - CLEAN_AIR_FLOOR_ADC))
+                .clamp(0.0, 1.0);
             instant[sensor] = rate_feature(amplitude, config.rate_budget);
 
             let delta = row.adc[sensor] - previous_adc[sensor];
@@ -419,11 +450,161 @@ fn evaluate(model: &StreamModel, frames: &[Frame]) -> Metrics {
 }
 
 fn better_metrics(candidate: Metrics, current: Metrics) -> bool {
-    let candidate_score =
-        candidate.silence * 2.0 + candidate.coverage + candidate.any_at_3 - candidate.false_positive;
+    let candidate_score = candidate.silence * 2.0 + candidate.coverage + candidate.any_at_3
+        - candidate.false_positive;
     let current_score =
         current.silence * 2.0 + current.coverage + current.any_at_3 - current.false_positive;
     candidate_score > current_score
+}
+
+fn print_validation_report(model: &StreamModel, frames: &[Frame]) {
+    let (buckets, labels) = validation_report(model, frames);
+
+    println!();
+    println!("Validation bucket breakdown:");
+    println!("bucket      frames emitted silence     fp    p@1   any@3 coverage targets covered");
+    for (bucket, report) in buckets.iter().enumerate() {
+        let name = match bucket {
+            0 => "no-scent",
+            1 => "1-note",
+            2 => "2-note",
+            3 => "3-note",
+            _ => "other",
+        };
+        let active_total = if bucket == 0 { 0 } else { report.total };
+        println!(
+            "{name:<9} {:>7} {:>7} {:>7.2}% {:>6.2}% {:>6.2}% {:>7.2}% {:>8.2}% {:>7} {:>7}",
+            report.total,
+            report.emitted,
+            percentage(report.silent, report.total),
+            percentage(report.false_positive, report.total),
+            percentage(report.p_at_1, active_total),
+            percentage(report.any_at_3, active_total),
+            percentage(report.covered_labels, report.target_labels),
+            report.target_labels,
+            report.covered_labels
+        );
+    }
+
+    println!();
+    println!("Validation label breakdown:");
+    println!("label          support predicted      tp      fp      fn precision recall");
+    for (label, report) in labels.iter().enumerate() {
+        println!(
+            "{:<13} {:>7} {:>9} {:>7} {:>7} {:>7} {:>8.2}% {:>6.2}%",
+            LABELS[label],
+            report.support,
+            report.predicted,
+            report.true_positive,
+            report.false_positive,
+            report.false_negative,
+            percentage(report.true_positive, report.predicted),
+            percentage(report.true_positive, report.support)
+        );
+    }
+
+    let mut misses = labels
+        .iter()
+        .enumerate()
+        .map(|(label, report)| (label, report.false_negative))
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    misses.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| LABELS[a.0].cmp(LABELS[b.0])));
+    if !misses.is_empty() {
+        println!();
+        println!("Top validation misses:");
+        for (rank, (label, count)) in misses.iter().take(8).enumerate() {
+            println!("{:>2}. {:<13} missed={}", rank + 1, LABELS[*label], count);
+        }
+    }
+
+    let mut false_positives = labels
+        .iter()
+        .enumerate()
+        .map(|(label, report)| (label, report.false_positive))
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    false_positives.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| LABELS[a.0].cmp(LABELS[b.0])));
+    if !false_positives.is_empty() {
+        println!();
+        println!("Top validation false positives:");
+        for (rank, (label, count)) in false_positives.iter().take(8).enumerate() {
+            println!("{:>2}. {:<13} fp={}", rank + 1, LABELS[*label], count);
+        }
+    }
+    println!();
+}
+
+fn validation_report(
+    model: &StreamModel,
+    frames: &[Frame],
+) -> ([BucketReport; 4], [LabelReport; OUTPUTS]) {
+    let mut buckets = [BucketReport::default(); 4];
+    let mut labels = [LabelReport::default(); OUTPUTS];
+
+    for frame in frames {
+        let logits = model.predict(&frame.features);
+        let top = top_k(&logits, 3);
+        let predicted = top
+            .iter()
+            .filter_map(|(label, score)| if *score > 0.0 { Some(*label) } else { None })
+            .collect::<Vec<_>>();
+        let target_count = frame.target.iter().filter(|value| **value).count();
+        let bucket = target_count.min(3);
+        let report = &mut buckets[bucket];
+        report.total += 1;
+        report.target_labels += target_count;
+        if predicted.is_empty() {
+            report.silent += 1;
+        } else {
+            report.emitted += 1;
+        }
+
+        if target_count == 0 {
+            if !predicted.is_empty() {
+                report.false_positive += 1;
+            }
+        } else {
+            if frame.primary_label == Some(top[0].0) {
+                report.p_at_1 += 1;
+            }
+            if top.iter().any(|(label, _)| frame.target[*label]) {
+                report.any_at_3 += 1;
+            }
+            for label in 0..OUTPUTS {
+                if frame.target[label] && top.iter().any(|(top_label, _)| *top_label == label) {
+                    report.covered_labels += 1;
+                }
+            }
+        }
+
+        for label in 0..OUTPUTS {
+            let is_target = frame.target[label];
+            let is_predicted = predicted.contains(&label);
+            if is_target {
+                labels[label].support += 1;
+            }
+            if is_predicted {
+                labels[label].predicted += 1;
+            }
+            match (is_target, is_predicted) {
+                (true, true) => labels[label].true_positive += 1,
+                (true, false) => labels[label].false_negative += 1,
+                (false, true) => labels[label].false_positive += 1,
+                (false, false) => {}
+            }
+        }
+    }
+
+    (buckets, labels)
+}
+
+fn percentage(numerator: usize, denominator: usize) -> f32 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f32 * 100.0 / denominator as f32
+    }
 }
 
 fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>> {

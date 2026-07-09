@@ -510,6 +510,7 @@ const scrub = document.getElementById('scrub');
 const meta = document.getElementById('meta');
 const status = document.getElementById('status');
 const left = 218, right = 24, topY = 74, panelW = 1120;
+const canvasLogicalHeight = 1720;
 const viewportSegments = Math.min(4, DATA.segments.length);
 scrub.max = Math.max(0, DATA.segments.length - viewportSegments);
 scrub.value = 0;
@@ -655,7 +656,7 @@ function draw() {{
     const [a,b,segmentEnd] = bucketsFor(segmentStart);
     canvas.width = Math.max(1220, window.innerWidth - 28);
     const scale = Math.min(1, (canvas.width - left - right) / panelW);
-    canvas.height = 1540 * scale;
+    canvas.height = canvasLogicalHeight * scale;
     ctx.setTransform(scale,0,0,scale,0,0);
     rect(0,0,canvas.width / scale,canvas.height / scale,'#f6f8f8');
     text('stream timeline', 8, 24, 22, '#263235', '700', 'left', 'system-ui,-apple-system,sans-serif');
