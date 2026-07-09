@@ -237,6 +237,15 @@ Optional positional arguments are:
 TRAINING_DIR STREAM_FILE MODEL_FILE PREVIEW_FILE PER_BUCKET_LIMIT EPOCHS
 ```
 
+The smoke script also has two effort presets:
+
+```sh
+scripts/smoke_snn_stream_all.sh --work-harder
+scripts/smoke_snn_stream_all.sh --work-hardest
+```
+
+`--work-harder` uses 32 captures per scent-count bucket and 10 epochs. `--work-hardest` uses 128 captures per scent-count bucket and 25 epochs.
+
 Build the current comprehensive SNN training dataset with:
 
 ```sh
