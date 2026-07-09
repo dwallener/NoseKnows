@@ -222,7 +222,7 @@ The CSVs are generated data and are ignored by git. The directory contract is tr
 For a fast end-to-end stream smoke run:
 
 ```sh
-scripts/smoke_snn_stream_all.sh
+scripts/run_everything.sh --smoke
 ```
 
 This regenerates the comprehensive SNN probe dataset, stitches a balanced 1-note/2-note/3-note smoke stream with no-scent gaps, trains a small stream readout model, and renders rows `0..15000` to:
@@ -240,11 +240,13 @@ TRAINING_DIR STREAM_FILE MODEL_FILE PREVIEW_FILE PER_BUCKET_LIMIT EPOCHS
 The smoke script also has two effort presets:
 
 ```sh
-scripts/smoke_snn_stream_all.sh --work-harder
-scripts/smoke_snn_stream_all.sh --work-hardest
+scripts/run_everything.sh --smoke --work-harder
+scripts/run_everything.sh --smoke --work-hardest
 ```
 
 `--work-harder` uses 32 captures per scent-count bucket and 10 epochs. `--work-hardest` uses 128 captures per scent-count bucket and 25 epochs.
+
+The older `scripts/smoke_snn_stream_all.sh` command remains as a compatibility wrapper for `scripts/run_everything.sh --smoke`.
 
 Build the current comprehensive SNN training dataset with:
 
