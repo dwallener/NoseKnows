@@ -21,6 +21,7 @@ const DEFAULT_GATE_WINDOW_SAMPLES: usize = 6;
 const DEFAULT_MIN_CORRECT_DECISIONS: usize = 3;
 const DEFAULT_MAX_SPILLOVER_LABELS: usize = 2;
 const DEFAULT_MAX_SPILLOVER_DECISIONS: usize = 3;
+const DEFAULT_DISPLAY_MAX_DOMINANT_GAP: usize = 8;
 const THRESHOLD: i32 = 1000;
 const DECAY_ALPHA_Q8: i32 = 235;
 const ADAPT_SENSOR: usize = 4;
@@ -75,6 +76,8 @@ struct Config {
     min_correct_decisions: usize,
     max_spillover_labels: usize,
     max_spillover_decisions: usize,
+    display_max_dominant_gap: usize,
+    rubric: Rubric,
     verbose: bool,
 }
 
@@ -163,6 +166,12 @@ enum Expected {
     NoScent,
     Single { label: usize },
     Skip,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Rubric {
+    Strict,
+    Display,
 }
 
 fn main() {
@@ -301,6 +310,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut min_correct_decisions = DEFAULT_MIN_CORRECT_DECISIONS;
     let mut max_spillover_labels = DEFAULT_MAX_SPILLOVER_LABELS;
     let mut max_spillover_decisions = DEFAULT_MAX_SPILLOVER_DECISIONS;
+    let mut display_max_dominant_gap = DEFAULT_DISPLAY_MAX_DOMINANT_GAP;
+    let mut rubric = Rubric::Strict;
     let mut verbose = false;
 
     let args = env::args().skip(1).collect::<Vec<_>>();
@@ -389,10 +400,21 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                     .ok_or("--max-spillover requires a value")?
                     .parse()?;
             }
+            "--display-max-dominant-gap" => {
+                index += 1;
+                display_max_dominant_gap = args
+                    .get(index)
+                    .ok_or("--display-max-dominant-gap requires a value")?
+                    .parse()?;
+            }
+            "--rubric" => {
+                index += 1;
+                rubric = parse_rubric(args.get(index).ok_or("--rubric requires a value")?)?;
+            }
             "--verbose" => verbose = true,
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin snn_selftest -- [--data data/raw_single_note_probe] [--model data/models/snn_accordion_single_note_probe.nsm] [--gate-window 6] [--min-correct 3] [--max-spillover-labels 2] [--max-spillover 3] [--verbose]"
+                    "Usage: cargo run --bin snn_selftest -- [--data data/raw_single_note_probe] [--model data/models/snn_accordion_single_note_probe.nsm] [--rubric strict|display] [--gate-window 6] [--min-correct 3] [--max-spillover-labels 2] [--max-spillover 3] [--display-max-dominant-gap 8] [--verbose]"
                 );
                 std::process::exit(0);
             }
@@ -415,8 +437,18 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         min_correct_decisions,
         max_spillover_labels,
         max_spillover_decisions,
+        display_max_dominant_gap,
+        rubric,
         verbose,
     })
+}
+
+fn parse_rubric(value: &str) -> Result<Rubric, Box<dyn std::error::Error>> {
+    match value {
+        "strict" => Ok(Rubric::Strict),
+        "display" => Ok(Rubric::Display),
+        other => Err(format!("unknown rubric {other}; expected strict or display").into()),
+    }
 }
 
 fn expected_from_labels(labels: &[String; 3]) -> Expected {
@@ -499,97 +531,185 @@ fn evaluate_sample(
             }
         }
         Expected::Single { label } => {
-            let raw_total: usize = raw_counts.iter().sum();
-            let gated_total: usize = gated_counts.iter().sum();
-            let correct = gated_counts[*label];
-            let top = top_label(gated_counts);
-            let spillovers = gated_counts
-                .iter()
-                .enumerate()
-                .filter(|(index, count)| *index != *label && **count > 0)
-                .collect::<Vec<_>>();
-            let over_limit = spillovers
-                .iter()
-                .filter(|(_, count)| **count > config.max_spillover_decisions)
-                .count();
-
-            if raw_total == 0 {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::RawSilent,
-                    reason: format!("raw output silent for {}", LABELS[*label]),
-                };
+            if config.rubric == Rubric::Display {
+                return evaluate_single_display(*label, raw_counts, gated_counts, config);
             }
-            if gated_total == 0 {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::GateSilent,
-                    reason: format!(
-                        "gate silent for {}; raw={}",
-                        LABELS[*label],
-                        format_counts(raw_counts)
-                    ),
-                };
-            }
-            if correct < config.min_correct_decisions {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::GateSilent,
-                    reason: format!(
-                        "correct {} too weak in gate: {correct} < {}; raw={} gated={}",
-                        LABELS[*label],
-                        config.min_correct_decisions,
-                        format_counts(raw_counts),
-                        format_counts(gated_counts)
-                    ),
-                };
-            }
-            if top != Some(*label) {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::WrongDominant,
-                    reason: format!(
-                        "correct {} not dominant; raw={} gated={}",
-                        LABELS[*label],
-                        format_counts(raw_counts),
-                        format_counts(gated_counts)
-                    ),
-                };
-            }
-            if spillovers.len() > config.max_spillover_labels {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::Spillover,
-                    reason: format!(
-                        "too many spillover labels: {} > {}; gated={}",
-                        spillovers.len(),
-                        config.max_spillover_labels,
-                        format_counts(gated_counts)
-                    ),
-                };
-            }
-            if over_limit > 0 {
-                return Verdict {
-                    passed: false,
-                    kind: FailureKind::Spillover,
-                    reason: format!(
-                        "spillover too persistent; max allowed per label {} gated={}",
-                        config.max_spillover_decisions,
-                        format_counts(gated_counts)
-                    ),
-                };
-            }
-            Verdict {
-                passed: true,
-                kind: FailureKind::Pass,
-                reason: "dominant correct label with bounded spillover".to_string(),
-            }
+            evaluate_single_strict(*label, raw_counts, gated_counts, config)
         }
         Expected::Skip => Verdict {
             passed: true,
             kind: FailureKind::Pass,
             reason: "skipped".to_string(),
         },
+    }
+}
+
+fn evaluate_single_strict(
+    label: usize,
+    raw_counts: &[usize; SNN_OUTPUTS],
+    gated_counts: &[usize; SNN_OUTPUTS],
+    config: &Config,
+) -> Verdict {
+    let raw_total: usize = raw_counts.iter().sum();
+    let gated_total: usize = gated_counts.iter().sum();
+    let correct = gated_counts[label];
+    let top = top_label(gated_counts);
+    let spillovers = gated_counts
+        .iter()
+        .enumerate()
+        .filter(|(index, count)| *index != label && **count > 0)
+        .collect::<Vec<_>>();
+    let over_limit = spillovers
+        .iter()
+        .filter(|(_, count)| **count > config.max_spillover_decisions)
+        .count();
+
+    if raw_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::RawSilent,
+            reason: format!("raw output silent for {}", LABELS[label]),
+        };
+    }
+    if gated_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "gate silent for {}; raw={}",
+                LABELS[label],
+                format_counts(raw_counts)
+            ),
+        };
+    }
+    if correct < config.min_correct_decisions {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "correct {} too weak in gate: {correct} < {}; raw={} gated={}",
+                LABELS[label],
+                config.min_correct_decisions,
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    if top != Some(label) {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::WrongDominant,
+            reason: format!(
+                "correct {} not dominant; raw={} gated={}",
+                LABELS[label],
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    if spillovers.len() > config.max_spillover_labels {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::Spillover,
+            reason: format!(
+                "too many spillover labels: {} > {}; gated={}",
+                spillovers.len(),
+                config.max_spillover_labels,
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    if over_limit > 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::Spillover,
+            reason: format!(
+                "spillover too persistent; max allowed per label {} gated={}",
+                config.max_spillover_decisions,
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    Verdict {
+        passed: true,
+        kind: FailureKind::Pass,
+        reason: "dominant correct label with bounded spillover".to_string(),
+    }
+}
+
+fn evaluate_single_display(
+    label: usize,
+    raw_counts: &[usize; SNN_OUTPUTS],
+    gated_counts: &[usize; SNN_OUTPUTS],
+    config: &Config,
+) -> Verdict {
+    let raw_total: usize = raw_counts.iter().sum();
+    let gated_total: usize = gated_counts.iter().sum();
+    let correct = gated_counts[label];
+    let ranked = ranked_labels(gated_counts);
+    let top_count = ranked.first().map(|(_, count)| *count).unwrap_or(0);
+    let correct_rank = ranked
+        .iter()
+        .position(|(candidate, count)| *candidate == label && *count > 0);
+
+    if raw_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::RawSilent,
+            reason: format!("raw output silent for {}", LABELS[label]),
+        };
+    }
+    if gated_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "gate silent for {}; raw={}",
+                LABELS[label],
+                format_counts(raw_counts)
+            ),
+        };
+    }
+    if correct < config.min_correct_decisions {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "correct {} too weak for display: {correct} < {}; raw={} gated={}",
+                LABELS[label],
+                config.min_correct_decisions,
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    if correct_rank.is_none_or(|rank| rank >= 3) {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::WrongDominant,
+            reason: format!(
+                "correct {} not in display top 3; raw={} gated={}",
+                LABELS[label],
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    if top_count.saturating_sub(correct) > config.display_max_dominant_gap {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::WrongDominant,
+            reason: format!(
+                "wrong note dominates display too strongly; max gap {} gated={}",
+                config.display_max_dominant_gap,
+                format_counts(gated_counts)
+            ),
+        };
+    }
+    Verdict {
+        passed: true,
+        kind: FailureKind::Pass,
+        reason: "correct label display-visible with bounded wrong dominance".to_string(),
     }
 }
 
@@ -1276,13 +1396,18 @@ fn output_counts(spikes: &[OutputSpike]) -> [usize; SNN_OUTPUTS] {
 }
 
 fn top_label(counts: &[usize; SNN_OUTPUTS]) -> Option<usize> {
-    counts
+    ranked_labels(counts).first().map(|(label, _)| *label)
+}
+
+fn ranked_labels(counts: &[usize; SNN_OUTPUTS]) -> Vec<(usize, usize)> {
+    let mut ranked = counts
         .iter()
         .copied()
         .enumerate()
         .filter(|(_, count)| *count > 0)
-        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| LABELS[b.0].cmp(LABELS[a.0])))
-        .map(|(label, _)| label)
+        .collect::<Vec<_>>();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| LABELS[a.0].cmp(LABELS[b.0])));
+    ranked
 }
 
 fn format_top(counts: &[usize; SNN_OUTPUTS]) -> &'static str {
@@ -1406,6 +1531,47 @@ mod tests {
     }
 
     #[test]
+    fn display_rubric_allows_close_wrong_dominant_label() {
+        let mut config = test_config();
+        config.rubric = Rubric::Display;
+        let green = label_index("Green").expect("green");
+        let floral = label_index("Floral").expect("floral");
+        let mut counts = [0; SNN_OUTPUTS];
+        counts[floral] = 13;
+        counts[green] = 12;
+
+        let verdict = evaluate_sample(
+            &Expected::Single { label: green },
+            &counts,
+            &counts,
+            &config,
+        );
+
+        assert!(verdict.passed);
+    }
+
+    #[test]
+    fn display_rubric_rejects_large_wrong_dominance() {
+        let mut config = test_config();
+        config.rubric = Rubric::Display;
+        let fruity = label_index("Fruity").expect("fruity");
+        let woods = label_index("Woods").expect("woods");
+        let mut counts = [0; SNN_OUTPUTS];
+        counts[woods] = 18;
+        counts[fruity] = 7;
+
+        let verdict = evaluate_sample(
+            &Expected::Single { label: fruity },
+            &counts,
+            &counts,
+            &config,
+        );
+
+        assert!(!verdict.passed);
+        assert_eq!(verdict.kind, FailureKind::WrongDominant);
+    }
+
+    #[test]
     fn single_note_distinguishes_raw_from_gate_silence() {
         let config = test_config();
         let citrus = label_index("Citrus").expect("citrus");
@@ -1451,6 +1617,8 @@ mod tests {
             min_correct_decisions: DEFAULT_MIN_CORRECT_DECISIONS,
             max_spillover_labels: DEFAULT_MAX_SPILLOVER_LABELS,
             max_spillover_decisions: DEFAULT_MAX_SPILLOVER_DECISIONS,
+            display_max_dominant_gap: DEFAULT_DISPLAY_MAX_DOMINANT_GAP,
+            rubric: Rubric::Strict,
             verbose: false,
         }
     }

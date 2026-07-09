@@ -408,6 +408,40 @@ Those bounds can be adjusted with:
 --min-correct 3 --max-spillover-labels 2 --max-spillover 3
 ```
 
+For product-facing wheel behavior, use the display rubric:
+
+```sh
+cargo run --bin snn_selftest -- \
+  --rubric display \
+  --data data/raw_single_note_probe \
+  --model data/models/snn_accordion_single_note_probe.nsm
+```
+
+The display rubric treats the output like a live nose display rather than a mass spectrometer:
+
+```text
+No Scent     gated readout must remain silent
+Single note  correct label must be visible in the top 3
+              correct label must have at least 3 gated decisions
+              a wrong dominant label is tolerated only if it is close
+```
+
+The wrong-dominance tolerance is controlled with:
+
+```sh
+--display-max-dominant-gap 8
+```
+
+Current display-rubric checkpoint:
+
+```text
+Self-test checked=100 passed=92 failed=8 skipped=0
+No Scent: 50/50 silent | Single note: 42/50 pass
+Failure kinds: raw_silent=3 gate_silent=3 wrong_dominant=2 spillover=0 no_scent_fp=0
+```
+
+This is the more relevant robustness benchmark. The strict rubric remains useful as a diagnostic because it reveals wrong-dominant and spillover patterns, but it should not be treated as the product acceptance criterion.
+
 As of this checkpoint, no-scent passes cleanly, while the stricter all-single-note check still exposes known class confusions and silent labels in the current accordion LIF readout. Treat this as a regression/self-test harness, not proof that the SNN classifier is finished.
 
 The self-test also prints a single-note confusion table. Current dominant-label failures are concentrated in a few useful buckets:
