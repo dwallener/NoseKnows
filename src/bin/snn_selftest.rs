@@ -144,6 +144,10 @@ struct Summary {
     no_scent_passed: usize,
     single_checked: usize,
     single_passed: usize,
+    two_checked: usize,
+    two_passed: usize,
+    three_checked: usize,
+    three_passed: usize,
 }
 
 #[derive(Default)]
@@ -164,14 +168,24 @@ struct Confusion {
 
 enum Expected {
     NoScent,
-    Single { label: usize },
+    Notes(ExpectedLabels),
     Skip,
+}
+
+#[derive(Clone, Copy)]
+struct ExpectedLabels {
+    labels: [usize; 3],
+    count: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Rubric {
-    Strict,
-    Display,
+    StrictSingle,
+    DisplayNoScent,
+    DisplaySingle,
+    DisplayTwo,
+    DisplayThree,
+    DisplayAll,
 }
 
 fn main() {
@@ -199,7 +213,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     for path in paths {
         let sample = load_sample(&path)?;
         let expected = expected_from_labels(&sample.labels);
-        if matches!(expected, Expected::Skip) {
+        if matches!(expected, Expected::Skip) || !config.rubric.accepts(&expected) {
             summary.skipped += 1;
             continue;
         }
@@ -228,23 +242,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let raw_counts = output_counts(&output_spikes);
         let gated_counts = decision_counts(&gated);
         let verdict = evaluate_sample(&expected, &raw_counts, &gated_counts, &config);
-        if let Expected::Single { label } = expected {
-            confusion.record(label, top_label(&gated_counts), verdict.passed);
+        if let Expected::Notes(labels) = expected {
+            if labels.count == 1 {
+                let label = labels.labels[0];
+                confusion.record(label, top_label(&gated_counts), verdict.passed);
+            }
         }
 
         summary.checked += 1;
         if matches!(expected, Expected::NoScent) {
             summary.no_scent_checked += 1;
-        } else {
-            summary.single_checked += 1;
+        } else if let Expected::Notes(labels) = expected {
+            match labels.count {
+                1 => summary.single_checked += 1,
+                2 => summary.two_checked += 1,
+                3 => summary.three_checked += 1,
+                _ => {}
+            }
         }
 
         if verdict.passed {
             summary.passed += 1;
             if matches!(expected, Expected::NoScent) {
                 summary.no_scent_passed += 1;
-            } else {
-                summary.single_passed += 1;
+            } else if let Expected::Notes(labels) = expected {
+                match labels.count {
+                    1 => summary.single_passed += 1,
+                    2 => summary.two_passed += 1,
+                    3 => summary.three_passed += 1,
+                    _ => {}
+                }
             }
         } else {
             summary.failed += 1;
@@ -272,11 +299,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         summary.checked, summary.passed, summary.failed, summary.skipped
     );
     println!(
-        "No Scent: {}/{} silent | Single note: {}/{} pass",
+        "No Scent: {}/{} silent | Single note: {}/{} pass | Two note: {}/{} pass | Three note: {}/{} pass",
         summary.no_scent_passed,
         summary.no_scent_checked,
         summary.single_passed,
-        summary.single_checked
+        summary.single_checked,
+        summary.two_passed,
+        summary.two_checked,
+        summary.three_passed,
+        summary.three_checked
     );
     print_failure_breakdown(&breakdown);
     print_confusion(&confusion);
@@ -311,7 +342,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut max_spillover_labels = DEFAULT_MAX_SPILLOVER_LABELS;
     let mut max_spillover_decisions = DEFAULT_MAX_SPILLOVER_DECISIONS;
     let mut display_max_dominant_gap = DEFAULT_DISPLAY_MAX_DOMINANT_GAP;
-    let mut rubric = Rubric::Strict;
+    let mut rubric = Rubric::StrictSingle;
     let mut verbose = false;
 
     let args = env::args().skip(1).collect::<Vec<_>>();
@@ -414,7 +445,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             "--verbose" => verbose = true,
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin snn_selftest -- [--data data/raw_single_note_probe] [--model data/models/snn_accordion_single_note_probe.nsm] [--rubric strict|display] [--gate-window 6] [--min-correct 3] [--max-spillover-labels 2] [--max-spillover 3] [--display-max-dominant-gap 8] [--verbose]"
+                    "Usage: cargo run --bin snn_selftest -- [--data data/raw_single_note_probe] [--model data/models/snn_accordion_single_note_probe.nsm] [--rubric strict|display-no-scent|display-single|display-two|display-three|display-all] [--gate-window 6] [--min-correct 3] [--max-spillover-labels 2] [--max-spillover 3] [--display-max-dominant-gap 8] [--verbose]"
                 );
                 std::process::exit(0);
             }
@@ -445,34 +476,72 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
 
 fn parse_rubric(value: &str) -> Result<Rubric, Box<dyn std::error::Error>> {
     match value {
-        "strict" => Ok(Rubric::Strict),
-        "display" => Ok(Rubric::Display),
-        other => Err(format!("unknown rubric {other}; expected strict or display").into()),
+        "strict" | "strict-single" => Ok(Rubric::StrictSingle),
+        "display" | "display-all" | "all" => Ok(Rubric::DisplayAll),
+        "display-no-scent" | "no-scent" => Ok(Rubric::DisplayNoScent),
+        "display-single" | "single" => Ok(Rubric::DisplaySingle),
+        "display-two" | "two" => Ok(Rubric::DisplayTwo),
+        "display-three" | "three" => Ok(Rubric::DisplayThree),
+        other => Err(format!(
+            "unknown rubric {other}; expected strict, display-no-scent, display-single, display-two, display-three, or display-all"
+        )
+        .into()),
     }
 }
 
 fn expected_from_labels(labels: &[String; 3]) -> Expected {
-    let real = labels
-        .iter()
-        .filter_map(|label| label_index(label))
-        .collect::<Vec<_>>();
-    if real.is_empty()
+    let mut expected = ExpectedLabels {
+        labels: [0; 3],
+        count: 0,
+    };
+    for label in labels.iter().filter_map(|label| label_index(label)) {
+        if expected.labels[..expected.count].contains(&label) {
+            continue;
+        }
+        if expected.count >= expected.labels.len() {
+            return Expected::Skip;
+        }
+        expected.labels[expected.count] = label;
+        expected.count += 1;
+    }
+    if expected.count == 0
         && labels
             .iter()
             .all(|label| label.eq_ignore_ascii_case(NO_SCENT_LABEL))
     {
         return Expected::NoScent;
     }
-    if real.len() == 1
-        && labels
-            .iter()
-            .filter(|label| label.eq_ignore_ascii_case(NO_SCENT_LABEL))
-            .count()
-            == 2
-    {
-        return Expected::Single { label: real[0] };
+    if (1..=3).contains(&expected.count) {
+        return Expected::Notes(expected);
     }
     Expected::Skip
+}
+
+impl Rubric {
+    fn accepts(self, expected: &Expected) -> bool {
+        match (self, expected) {
+            (Rubric::StrictSingle, Expected::NoScent) => true,
+            (Rubric::StrictSingle, Expected::Notes(labels)) => labels.count == 1,
+            (Rubric::DisplayNoScent, Expected::NoScent) => true,
+            (Rubric::DisplaySingle, Expected::Notes(labels)) => labels.count == 1,
+            (Rubric::DisplayTwo, Expected::Notes(labels)) => labels.count == 2,
+            (Rubric::DisplayThree, Expected::Notes(labels)) => labels.count == 3,
+            (Rubric::DisplayAll, Expected::NoScent) => true,
+            (Rubric::DisplayAll, Expected::Notes(labels)) => (1..=3).contains(&labels.count),
+            _ => false,
+        }
+    }
+
+    fn is_display(self) -> bool {
+        matches!(
+            self,
+            Rubric::DisplayNoScent
+                | Rubric::DisplaySingle
+                | Rubric::DisplayTwo
+                | Rubric::DisplayThree
+                | Rubric::DisplayAll
+        )
+    }
 }
 
 struct Verdict {
@@ -530,11 +599,11 @@ fn evaluate_sample(
                 }
             }
         }
-        Expected::Single { label } => {
-            if config.rubric == Rubric::Display {
-                return evaluate_single_display(*label, raw_counts, gated_counts, config);
+        Expected::Notes(labels) => {
+            if config.rubric.is_display() {
+                return evaluate_notes_display(*labels, raw_counts, gated_counts, config);
             }
-            evaluate_single_strict(*label, raw_counts, gated_counts, config)
+            evaluate_single_strict(labels.labels[0], raw_counts, gated_counts, config)
         }
         Expected::Skip => Verdict {
             passed: true,
@@ -710,6 +779,130 @@ fn evaluate_single_display(
         passed: true,
         kind: FailureKind::Pass,
         reason: "correct label display-visible with bounded wrong dominance".to_string(),
+    }
+}
+
+fn evaluate_notes_display(
+    labels: ExpectedLabels,
+    raw_counts: &[usize; SNN_OUTPUTS],
+    gated_counts: &[usize; SNN_OUTPUTS],
+    config: &Config,
+) -> Verdict {
+    if labels.count == 1 {
+        return evaluate_single_display(labels.labels[0], raw_counts, gated_counts, config);
+    }
+
+    let raw_total: usize = raw_counts.iter().sum();
+    let gated_total: usize = gated_counts.iter().sum();
+    let ranked = ranked_labels(gated_counts);
+    let expected_visible = labels
+        .labels
+        .iter()
+        .take(labels.count)
+        .filter(|label| {
+            ranked.iter().take(3).any(|(candidate, count)| {
+                candidate == *label && *count >= config.min_correct_decisions
+            })
+        })
+        .count();
+    let expected_present = labels
+        .labels
+        .iter()
+        .take(labels.count)
+        .filter(|label| {
+            ranked
+                .iter()
+                .take(3)
+                .any(|(candidate, count)| candidate == *label && *count > 0)
+        })
+        .count();
+    let required_visible = if labels.count == 2 { 2 } else { 2 };
+    let best_expected = labels
+        .labels
+        .iter()
+        .take(labels.count)
+        .map(|label| gated_counts[*label])
+        .max()
+        .unwrap_or(0);
+
+    if raw_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::RawSilent,
+            reason: format!(
+                "raw output silent for {}",
+                expected_name(&Expected::Notes(labels))
+            ),
+        };
+    }
+    if gated_total == 0 {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "gate silent for {}; raw={}",
+                expected_name(&Expected::Notes(labels)),
+                format_counts(raw_counts)
+            ),
+        };
+    }
+
+    if let Some((top_label, top_count)) = ranked.first() {
+        if !labels.contains(*top_label)
+            && top_count.saturating_sub(best_expected) > config.display_max_dominant_gap
+        {
+            return Verdict {
+                passed: false,
+                kind: FailureKind::WrongDominant,
+                reason: format!(
+                    "unexpected dominant {} too strong for {}; gated={}",
+                    LABELS[*top_label],
+                    expected_name(&Expected::Notes(labels)),
+                    format_counts(gated_counts)
+                ),
+            };
+        }
+    }
+
+    if labels.count == 2
+        && expected_visible < required_visible
+        && !(expected_visible == 1 && expected_present == 2)
+    {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "two-note display needs both labels visible, or one solid and the other present; expected={} raw={} gated={}",
+                expected_name(&Expected::Notes(labels)),
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+
+    if labels.count == 3 && expected_visible < required_visible {
+        return Verdict {
+            passed: false,
+            kind: FailureKind::GateSilent,
+            reason: format!(
+                "three-note display needs at least two expected labels visible; expected={} raw={} gated={}",
+                expected_name(&Expected::Notes(labels)),
+                format_counts(raw_counts),
+                format_counts(gated_counts)
+            ),
+        };
+    }
+
+    Verdict {
+        passed: true,
+        kind: FailureKind::Pass,
+        reason: "expected blend display-visible with bounded wrong dominance".to_string(),
+    }
+}
+
+impl ExpectedLabels {
+    fn contains(self, label: usize) -> bool {
+        self.labels[..self.count].contains(&label)
     }
 }
 
@@ -1419,7 +1612,13 @@ fn format_top(counts: &[usize; SNN_OUTPUTS]) -> &'static str {
 fn expected_name(expected: &Expected) -> String {
     match expected {
         Expected::NoScent => NO_SCENT_LABEL.to_string(),
-        Expected::Single { label } => LABELS[*label].to_string(),
+        Expected::Notes(labels) => labels
+            .labels
+            .iter()
+            .take(labels.count)
+            .map(|label| LABELS[*label])
+            .collect::<Vec<_>>()
+            .join("+"),
         Expected::Skip => "skip".to_string(),
     }
 }
@@ -1500,12 +1699,7 @@ mod tests {
         counts[citrus] = 12;
         counts[fruity] = 3;
 
-        let verdict = evaluate_sample(
-            &Expected::Single { label: citrus },
-            &counts,
-            &counts,
-            &config,
-        );
+        let verdict = evaluate_sample(&single_expected(citrus), &counts, &counts, &config);
 
         assert!(verdict.passed);
     }
@@ -1519,12 +1713,7 @@ mod tests {
         counts[citrus] = 4;
         counts[fruity] = 5;
 
-        let verdict = evaluate_sample(
-            &Expected::Single { label: citrus },
-            &counts,
-            &counts,
-            &config,
-        );
+        let verdict = evaluate_sample(&single_expected(citrus), &counts, &counts, &config);
 
         assert!(!verdict.passed);
         assert_eq!(verdict.kind, FailureKind::WrongDominant);
@@ -1533,19 +1722,14 @@ mod tests {
     #[test]
     fn display_rubric_allows_close_wrong_dominant_label() {
         let mut config = test_config();
-        config.rubric = Rubric::Display;
+        config.rubric = Rubric::DisplaySingle;
         let green = label_index("Green").expect("green");
         let floral = label_index("Floral").expect("floral");
         let mut counts = [0; SNN_OUTPUTS];
         counts[floral] = 13;
         counts[green] = 12;
 
-        let verdict = evaluate_sample(
-            &Expected::Single { label: green },
-            &counts,
-            &counts,
-            &config,
-        );
+        let verdict = evaluate_sample(&single_expected(green), &counts, &counts, &config);
 
         assert!(verdict.passed);
     }
@@ -1553,19 +1737,14 @@ mod tests {
     #[test]
     fn display_rubric_rejects_large_wrong_dominance() {
         let mut config = test_config();
-        config.rubric = Rubric::Display;
+        config.rubric = Rubric::DisplaySingle;
         let fruity = label_index("Fruity").expect("fruity");
         let woods = label_index("Woods").expect("woods");
         let mut counts = [0; SNN_OUTPUTS];
         counts[woods] = 18;
         counts[fruity] = 7;
 
-        let verdict = evaluate_sample(
-            &Expected::Single { label: fruity },
-            &counts,
-            &counts,
-            &config,
-        );
+        let verdict = evaluate_sample(&single_expected(fruity), &counts, &counts, &config);
 
         assert!(!verdict.passed);
         assert_eq!(verdict.kind, FailureKind::WrongDominant);
@@ -1580,7 +1759,7 @@ mod tests {
         raw_counts[citrus] = 2;
 
         let verdict = evaluate_sample(
-            &Expected::Single { label: citrus },
+            &single_expected(citrus),
             &raw_counts,
             &gated_counts,
             &config,
@@ -1602,6 +1781,66 @@ mod tests {
         assert_eq!(confusion.pass[citrus], 0);
     }
 
+    #[test]
+    fn display_two_note_accepts_one_solid_one_present() {
+        let mut config = test_config();
+        config.rubric = Rubric::DisplayTwo;
+        let citrus = label_index("Citrus").expect("citrus");
+        let water = label_index("Water").expect("water");
+        let mut counts = [0; SNN_OUTPUTS];
+        counts[citrus] = 12;
+        counts[water] = 1;
+
+        let verdict = evaluate_sample(&notes_expected(&[citrus, water]), &counts, &counts, &config);
+
+        assert!(verdict.passed);
+    }
+
+    #[test]
+    fn display_three_note_requires_two_visible_expected_labels() {
+        let mut config = test_config();
+        config.rubric = Rubric::DisplayThree;
+        let citrus = label_index("Citrus").expect("citrus");
+        let water = label_index("Water").expect("water");
+        let floral = label_index("Floral").expect("floral");
+        let mut counts = [0; SNN_OUTPUTS];
+        counts[citrus] = 8;
+        counts[water] = 5;
+
+        let verdict = evaluate_sample(
+            &notes_expected(&[citrus, water, floral]),
+            &counts,
+            &counts,
+            &config,
+        );
+
+        assert!(verdict.passed);
+    }
+
+    #[test]
+    fn display_three_note_rejects_unexpected_dominance() {
+        let mut config = test_config();
+        config.rubric = Rubric::DisplayThree;
+        let citrus = label_index("Citrus").expect("citrus");
+        let water = label_index("Water").expect("water");
+        let floral = label_index("Floral").expect("floral");
+        let woods = label_index("Woods").expect("woods");
+        let mut counts = [0; SNN_OUTPUTS];
+        counts[citrus] = 4;
+        counts[water] = 3;
+        counts[woods] = 20;
+
+        let verdict = evaluate_sample(
+            &notes_expected(&[citrus, water, floral]),
+            &counts,
+            &counts,
+            &config,
+        );
+
+        assert!(!verdict.passed);
+        assert_eq!(verdict.kind, FailureKind::WrongDominant);
+    }
+
     fn test_config() -> Config {
         Config {
             data_dir: PathBuf::from(DEFAULT_DATA),
@@ -1618,8 +1857,21 @@ mod tests {
             max_spillover_labels: DEFAULT_MAX_SPILLOVER_LABELS,
             max_spillover_decisions: DEFAULT_MAX_SPILLOVER_DECISIONS,
             display_max_dominant_gap: DEFAULT_DISPLAY_MAX_DOMINANT_GAP,
-            rubric: Rubric::Strict,
+            rubric: Rubric::StrictSingle,
             verbose: false,
         }
+    }
+
+    fn single_expected(label: usize) -> Expected {
+        notes_expected(&[label])
+    }
+
+    fn notes_expected(labels: &[usize]) -> Expected {
+        let mut expected = ExpectedLabels {
+            labels: [0; 3],
+            count: labels.len(),
+        };
+        expected.labels[..labels.len()].copy_from_slice(labels);
+        Expected::Notes(expected)
     }
 }

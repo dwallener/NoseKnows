@@ -33,13 +33,17 @@
 - Treat label emission as accumulated evidence over a capture/window, not as a required decision at every spike subslot.
 - Use the rolling-window gated readout preview to compare raw label spikes against thresholded live-style "report/no-report" label decisions.
 - Keep no-scent/clean-air captures in the dataset permanently; a correct no-scent readout is silence, not a forced fragrance label.
-- Use `cargo run --bin snn_selftest` as the end-to-end single-note/no-scent regression harness:
+- Use `cargo run --bin snn_selftest` as the end-to-end SNN regression harness with separate rubrics:
   - No-scent should produce silent gated readout.
   - Single-note should produce a longer-lived dominant signal on the correct label.
-  - Small transient spillover on one or two other labels is acceptable.
-  - Use `--rubric display` as the product-facing wheel acceptance check.
+  - Two-note should make both expected labels visible, while allowing one of them to be weaker if the other is solid.
+  - Three-note should make at least two of the three expected labels visible.
+  - Small transient spillover on one or two other labels is acceptable when it does not dominate strongly.
+  - Use `--rubric display-no-scent`, `--rubric display-single`, `--rubric display-two`, and `--rubric display-three` as separate product-facing wheel acceptance checks.
+  - Use `--rubric display` / `--rubric display-all` only as an aggregate display check.
   - Keep the default strict rubric as a diagnostic for top-1/spillover failure analysis.
   - Current display-rubric checkpoint: 92/100 overall, 50/50 no-scent silent, 42/50 single-note pass.
+  - Two-note and three-note display rubrics are implemented, but still need dedicated probe datasets before their pass rates mean anything.
   - Current checkpoint: no-scent passes, but several single-note classes are still silent or confused in the accordion LIF readout.
   - Current largest dominant-label confusions: Fruity -> Woods, Green -> Floral, Water -> Floral, and several Amber/Woods-family labels -> Silent.
   - Current failure split after targeted tuning: raw_silent=3, gate_silent=3, wrong_dominant=9, spillover=6, no_scent_fp=0.

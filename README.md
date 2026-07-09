@@ -378,22 +378,29 @@ fp       false-positive rate on no-scent samples
 
 For no-scent rows, a silent output counts as success for the combined `p@1` and `any@3` scores. During LIF fine-tuning, no-scent samples use a separate suppression update: only labels that actually activate are pushed down, and with a smaller update than normal fragrance-label correction.
 
-Run the single-note/no-scent end-to-end SNN self-test:
+Run the end-to-end SNN self-test:
 
 ```sh
 cargo run --bin snn_selftest -- \
+  --rubric display \
   --data data/raw_single_note_probe \
   --model data/models/snn_accordion_single_note_probe.nsm
 ```
 
-The self-test reuses the same spike encoder, SNN model format, and rolling gated readout semantics as the SVG visualizer. It skips multi-label captures and checks only:
+The self-test reuses the same spike encoder, SNN model format, and rolling gated readout semantics as the SVG visualizer. Rubrics are intentionally split by capture type so no-scent, single-note, two-note, and three-note behavior can be evaluated independently:
 
 ```text
-No Scent     expected silent gated readout
-Single note  expected correct label as dominant gated readout
+strict             diagnostic no-scent + single-note check
+display-no-scent   no-scent only; gated readout must stay silent
+display-single     single-note only; correct note must be display-visible
+display-two        two-note only; both notes should be visible, with one allowed weak
+display-three      three-note only; at least two expected notes must be visible
+display-all        aggregate display rubric over no-scent plus 1/2/3-note captures
 ```
 
-The default single-note rule is intentionally pragmatic rather than antiseptic:
+The legacy `--rubric display` alias maps to `display-all`. On the current `data/raw_single_note_probe` set that means no-scent plus single-note, because no two- or three-note probe captures are present yet.
+
+The default `strict` single-note rule is intentionally pragmatic rather than antiseptic:
 
 ```text
 correct label decisions >= 3
@@ -412,7 +419,7 @@ For product-facing wheel behavior, use the display rubric:
 
 ```sh
 cargo run --bin snn_selftest -- \
-  --rubric display \
+  --rubric display-single \
   --data data/raw_single_note_probe \
   --model data/models/snn_accordion_single_note_probe.nsm
 ```
@@ -420,10 +427,14 @@ cargo run --bin snn_selftest -- \
 The display rubric treats the output like a live nose display rather than a mass spectrometer:
 
 ```text
-No Scent     gated readout must remain silent
 Single note  correct label must be visible in the top 3
               correct label must have at least 3 gated decisions
               a wrong dominant label is tolerated only if it is close
+Two note     both expected labels should be top-3 visible
+              one expected label may be weak if the other is solid
+              an unexpected dominant label is tolerated only if it is close
+Three note   at least two of three expected labels must be top-3 visible
+              an unexpected dominant label is tolerated only if it is close
 ```
 
 The wrong-dominance tolerance is controlled with:
@@ -436,8 +447,17 @@ Current display-rubric checkpoint:
 
 ```text
 Self-test checked=100 passed=92 failed=8 skipped=0
-No Scent: 50/50 silent | Single note: 42/50 pass
+No Scent: 50/50 silent | Single note: 42/50 pass | Two note: 0/0 pass | Three note: 0/0 pass
 Failure kinds: raw_silent=3 gate_silent=3 wrong_dominant=2 spillover=0 no_scent_fp=0
+```
+
+Separated checks:
+
+```text
+display-no-scent: 50/50 pass
+display-single:   42/50 pass
+display-two:      waiting for two-note probe captures
+display-three:    waiting for three-note probe captures
 ```
 
 This is the more relevant robustness benchmark. The strict rubric remains useful as a diagnostic because it reveals wrong-dominant and spillover patterns, but it should not be treated as the product acceptance criterion.
