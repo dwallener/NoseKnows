@@ -291,6 +291,14 @@ This path intentionally narrows the task to no-scent plus single-note captures. 
 
 The first run over `data/training/snn_comprehensive` loaded 156 no-scent/single-note captures and reached 100% validation p@1 with 100% no-scent silence by epoch 25. Treat this as proof that the one-note peak signature is clean in the current synthetic matrix, not as a solution for 2- or 3-note compression/saturation mixtures.
 
+To replay that trained peak-pair readout across a stitched synthetic stream, run:
+
+```sh
+scripts/eval_peak_stream.sh
+```
+
+This does not read live hardware. It walks the stream CSV one row at a time, keeps the same rolling peak sample-and-hold used by the trainer, quantizes the current held sensor peaks, expands the pairwise accordion features, and reports row-level readout metrics. The report includes both all-frame metrics and settled-frame metrics that skip the first hold window of each stream segment, because a sample-and-hold should intentionally preserve evidence briefly after a segment boundary.
+
 For continuous-training experiments, build a long labeled stream from the same capture dataset:
 
 ```sh
