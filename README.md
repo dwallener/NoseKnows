@@ -239,6 +239,29 @@ Train against the comprehensive SNN set with:
 cargo run --bin snn_train -- --data data/training/snn_comprehensive --out data/models/snn_accordion_comprehensive.nsm --epochs 250 --validation 0.2 --accordion
 ```
 
+For continuous-training experiments, build a long labeled stream from the same capture dataset:
+
+```sh
+scripts/build_snn_stream_dataset.sh
+```
+
+By default this writes `data/streams/snn_comprehensive_stream.csv`, shuffling fragrance captures and inserting no-scent gaps so about 50% of stream rows are clean air. The stitcher derives both scent and no-scent rows from generated capture CSVs, so gaps found in stream training can still be fixed at the common synthetic source.
+
+Train the separate stream readout model with:
+
+```sh
+scripts/train_snn_stream.sh
+```
+
+The first stream model is deliberately separate from the capture-level accordion model. It walks the stitched CSV one row at a time, builds rolling baseline-relative rate/delta spike features, and trains with no-scent rows as all-false targets. A small smoke stream can be built and trained with:
+
+```sh
+scripts/build_snn_stream_dataset.sh data/training/snn_comprehensive data/streams/smoke_stream.csv 0.5 8
+cargo run --bin snn_stream_train -- --stream data/streams/smoke_stream.csv --out data/models/snn_stream_smoke.nsm --epochs 3 --validation 0.2 --window 30 --stride 1
+```
+
+The initial smoke run produced a 14,400-row stream with exactly 50% no-scent rows and reached roughly 97% no-scent silence after three epochs. Treat this as a stream-training scaffold, not the final live classifier.
+
 The matrix maps into the existing 9-column CSV shape as:
 
 ```text

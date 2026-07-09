@@ -19,6 +19,8 @@
 !/data/selftest/README.md
 /data/training/**/*.csv
 !/data/training/README.md
+/data/streams/**/*.csv
+!/data/streams/README.md
 
 # Local training artifacts
 /data/models/*
