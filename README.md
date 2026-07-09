@@ -219,6 +219,24 @@ data/selftest/three_note  364 three-label combinations
 
 The CSVs are generated data and are ignored by git. The directory contract is tracked in `data/selftest/README.md`.
 
+For a fast end-to-end stream smoke run:
+
+```sh
+scripts/smoke_snn_stream_all.sh
+```
+
+This regenerates the comprehensive SNN probe dataset, stitches a balanced 1-note/2-note/3-note smoke stream with no-scent gaps, trains a small stream readout model, and renders rows `0..15000` to:
+
+```text
+data/streams/stream_preview.svg
+```
+
+Optional positional arguments are:
+
+```text
+TRAINING_DIR STREAM_FILE MODEL_FILE PREVIEW_FILE PER_BUCKET_LIMIT EPOCHS
+```
+
 Build the current comprehensive SNN training dataset with:
 
 ```sh
