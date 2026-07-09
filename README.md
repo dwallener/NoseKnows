@@ -225,10 +225,11 @@ For a fast end-to-end stream smoke run:
 scripts/run_everything.sh --smoke
 ```
 
-This regenerates the comprehensive SNN probe dataset, stitches a balanced 1-note/2-note/3-note smoke stream with no-scent gaps, trains a small stream readout model, and renders rows `0..15000` to:
+This regenerates the comprehensive SNN probe dataset, stitches a balanced 1-note/2-note/3-note smoke stream with no-scent gaps, trains a small stream readout model, renders a static rows `0..15000` SVG snapshot, and writes a self-contained scrubber HTML viewer.
 
 ```text
 data/streams/stream_preview.svg
+data/streams/stream_viewer.html
 ```
 
 Optional positional arguments are:
@@ -244,7 +245,15 @@ scripts/run_everything.sh --smoke --work-harder
 scripts/run_everything.sh --smoke --work-hardest
 ```
 
-`--work-harder` uses 32 captures per scent-count bucket and 10 epochs. `--work-hardest` uses 128 captures per scent-count bucket and 25 epochs.
+The effort presets scale both the stream/training run and the interactive viewer window:
+
+```text
+default         8 captures per scent-count bucket,   3 epochs,  20,000 viewer rows
+--work-harder  32 captures per scent-count bucket, 10 epochs, 200,000 viewer rows
+--work-hardest 300 captures per scent-count bucket, 25 epochs,   2,000,000 viewer rows
+```
+
+The viewer is downsampled into bounded buckets so it remains practical as a local HTML file. It includes a full-stream minimap, a scrub control, previous/next window buttons, and a jump-to-active button.
 
 The older `scripts/smoke_snn_stream_all.sh` command remains as a compatibility wrapper for `scripts/run_everything.sh --smoke`.
 

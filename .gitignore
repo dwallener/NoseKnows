@@ -21,6 +21,7 @@
 !/data/training/README.md
 /data/streams/**/*.csv
 /data/streams/**/*.svg
+/data/streams/**/*.html
 !/data/streams/README.md
 
 # Local training artifacts
