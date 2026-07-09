@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|capture| !is_no_scent(&capture.labels))
         .cloned()
         .collect::<Vec<_>>();
-    let no_scent = captures
+    let mut no_scent = captures
         .iter()
         .filter(|capture| is_no_scent(&capture.labels))
         .cloned()
@@ -73,16 +73,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rng = Lcg::new(config.seed);
     shuffle(&mut scent, &mut rng);
+    shuffle(&mut no_scent, &mut rng);
     if let Some(limit) = config.limit {
         scent.truncate(limit.min(scent.len()));
     }
 
     let gap_multiplier = config.no_scent_ratio / (1.0 - config.no_scent_ratio);
-    let mut gap_rows = no_scent
-        .iter()
-        .flat_map(|capture| capture.rows.iter().copied())
-        .collect::<Vec<_>>();
-    shuffle(&mut gap_rows, &mut rng);
+    let mut gap_source = GapSource::new(no_scent);
 
     if let Some(parent) = config.output_path.parent() {
         fs::create_dir_all(parent)?;
@@ -96,8 +93,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream_row = 0_u64;
     let mut no_scent_rows_written = 0_usize;
     let mut scent_rows_written = 0_usize;
-    let mut gap_cursor = 0_usize;
-
     for (segment_index, capture) in scent.iter().enumerate() {
         for row in &capture.rows {
             write_row(
@@ -116,14 +111,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         let desired_gap = (capture.rows.len() as f32 * gap_multiplier).round() as usize;
         for _ in 0..desired_gap {
-            let row = gap_rows[gap_cursor % gap_rows.len()];
-            gap_cursor += 1;
+            let (source_id, row) = gap_source.next_row();
             write_row(
                 &mut file,
                 stream_row,
                 segment_index,
                 "no_scent",
-                "stream_no_scent_gap",
+                source_id,
                 "Stream No Scent Gap",
                 &[
                     NO_SCENT_LABEL.to_string(),
@@ -156,6 +150,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         actual_no_scent_ratio
     );
     Ok(())
+}
+
+struct GapSource {
+    captures: Vec<Capture>,
+    capture_index: usize,
+    row_index: usize,
+}
+
+impl GapSource {
+    fn new(captures: Vec<Capture>) -> Self {
+        Self {
+            captures,
+            capture_index: 0,
+            row_index: 0,
+        }
+    }
+
+    fn next_row(&mut self) -> (&str, [u16; CHANNELS]) {
+        let capture = &self.captures[self.capture_index];
+        let row = capture.rows[self.row_index];
+        let source_id = capture.id.as_str();
+
+        self.row_index += 1;
+        if self.row_index >= capture.rows.len() {
+            self.row_index = 0;
+            self.capture_index = (self.capture_index + 1) % self.captures.len();
+        }
+
+        (source_id, row)
+    }
 }
 
 fn write_row(
@@ -429,5 +453,25 @@ mod tests {
             NO_SCENT_LABEL.to_string(),
             NO_SCENT_LABEL.to_string(),
         ]));
+    }
+
+    #[test]
+    fn gap_source_preserves_capture_row_order() {
+        let captures = vec![Capture {
+            id: "gap_a".to_string(),
+            name: "Gap A".to_string(),
+            labels: [
+                NO_SCENT_LABEL.to_string(),
+                NO_SCENT_LABEL.to_string(),
+                NO_SCENT_LABEL.to_string(),
+            ],
+            rows: vec![[1; CHANNELS], [2; CHANNELS], [3; CHANNELS]],
+        }];
+        let mut source = GapSource::new(captures);
+
+        assert_eq!(source.next_row().1[0], 1);
+        assert_eq!(source.next_row().1[0], 2);
+        assert_eq!(source.next_row().1[0], 3);
+        assert_eq!(source.next_row().1[0], 1);
     }
 }
