@@ -295,7 +295,7 @@ Train the separate stream readout model with:
 scripts/train_snn_stream.sh
 ```
 
-The first stream model is deliberately separate from the capture-level accordion model. It walks the stitched CSV one row at a time, builds rolling baseline-relative rate/delta spike features, and trains with no-scent rows as all-false targets. A small smoke stream can be built and trained with:
+The stream model is deliberately separate from the capture-level accordion model. It walks the stitched CSV one row at a time, builds rolling baseline-relative rate/delta spike features, expands those 16 lanes through the same 64 seeded accordion motifs used by the stream viewer, and trains the `64 -> 14` readout with no-scent rows as all-false targets. A small smoke stream can be built and trained with:
 
 ```sh
 scripts/build_snn_stream_dataset.sh data/training/snn_comprehensive data/streams/smoke_stream.csv 3 3 8
@@ -310,7 +310,7 @@ Render a compact rolling timeline preview for the stream model with:
 scripts/viz_snn_stream.sh
 ```
 
-The preview writes `data/streams/stream_preview.svg` by default. It shows a bounded row window with a ground-truth strip, compact ADC traces, rolling rate/delta feature lanes, a diagnostic 64-motif accordion panel, label evidence heatmap, and gated top-3 readout lanes. The current stream readout model still trains on the 16 rolling input features; the accordion panel exposes the seeded motif responses we expect to move into the stream model next. Use the optional script arguments to inspect a different stream/model/window:
+The preview writes `data/streams/stream_preview.svg` by default. It shows a bounded row window with a ground-truth strip, compact ADC traces, rolling rate/delta feature lanes, the 64-motif accordion panel used by the stream model, label evidence heatmap, and gated top-3 readout lanes. Use the optional script arguments to inspect a different stream/model/window:
 
 ```sh
 scripts/viz_snn_stream.sh data/streams/snn_comprehensive_stream.csv data/models/snn_stream_readout.nsm data/streams/stream_preview.svg 0 3000

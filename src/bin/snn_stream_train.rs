@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 const CHANNELS: usize = 9;
 const ACTIVE_SENSORS: usize = 8;
 const FEATURES: usize = ACTIVE_SENSORS * 2;
+const PATTERN_NEURONS: usize = 64;
 const OUTPUTS: usize = 14;
 const MAX_ADC: f32 = 4095.0;
 const CLEAN_AIR_FLOOR_ADC: f32 = 300.0;
@@ -54,12 +55,16 @@ struct StreamRow {
 struct Frame {
     target: [bool; OUTPUTS],
     primary_label: Option<usize>,
-    features: [f32; FEATURES],
+    features: [f32; PATTERN_NEURONS],
 }
 
 struct StreamModel {
-    weights: [[f32; FEATURES]; OUTPUTS],
+    weights: [[f32; PATTERN_NEURONS]; OUTPUTS],
     bias: [f32; OUTPUTS],
+}
+
+struct PatternBank {
+    weights: [[i16; FEATURES]; PATTERN_NEURONS],
 }
 
 #[derive(Default, Clone, Copy)]
@@ -124,9 +129,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.stride
     );
     println!(
-        "Stream model: rolling spike features {} rate + {} latency -> {} labels; no-scent is an all-false target",
+        "Stream model: rolling spike features {} rate + {} latency -> {} accordion motifs -> {} labels; no-scent is an all-false target",
         ACTIVE_SENSORS,
         ACTIVE_SENSORS,
+        PATTERN_NEURONS,
         OUTPUTS
     );
 
@@ -283,6 +289,7 @@ fn build_frames(rows: &[StreamRow], config: &Config) -> Vec<Frame> {
     let mut history = Vec::new();
     let mut frames = Vec::new();
     let mut previous_adc = rows[0].adc;
+    let patterns = PatternBank::seeded();
 
     for (row_index, row) in rows.iter().enumerate() {
         let mut instant = [0.0_f32; FEATURES];
@@ -317,7 +324,7 @@ fn build_frames(rows: &[StreamRow], config: &Config) -> Vec<Frame> {
             frames.push(Frame {
                 target: row.target,
                 primary_label: primary_label(&row.labels),
-                features,
+                features: patterns.forward(&features),
             });
         }
     }
@@ -346,7 +353,7 @@ fn latency_feature(delta_adc: f32, budget: usize) -> f32 {
 impl StreamModel {
     fn new() -> Self {
         Self {
-            weights: [[0.0; FEATURES]; OUTPUTS],
+            weights: [[0.0; PATTERN_NEURONS]; OUTPUTS],
             bias: [0.0; OUTPUTS],
         }
     }
@@ -367,7 +374,7 @@ impl StreamModel {
                 let error = target - sigmoid(logits[label]);
                 let update = config.learning_rate * weight * error;
                 self.bias[label] = (self.bias[label] + update * 0.01).clamp(-12.0, 12.0);
-                for feature in 0..FEATURES {
+                for feature in 0..PATTERN_NEURONS {
                     self.weights[label][feature] = (self.weights[label][feature]
                         + update * frame.features[feature])
                         .clamp(-24.0, 24.0);
@@ -376,7 +383,7 @@ impl StreamModel {
         }
     }
 
-    fn predict(&self, features: &[f32; FEATURES]) -> [f32; OUTPUTS] {
+    fn predict(&self, features: &[f32; PATTERN_NEURONS]) -> [f32; OUTPUTS] {
         let mut logits = self.bias;
         for (label, logit) in logits.iter_mut().enumerate() {
             for (feature, value) in features.iter().enumerate() {
@@ -384,6 +391,136 @@ impl StreamModel {
             }
         }
         logits
+    }
+}
+
+impl PatternBank {
+    fn seeded() -> Self {
+        let mut weights = [[-60_i16; FEATURES]; PATTERN_NEURONS];
+
+        for input in 0..FEATURES {
+            weights[input] = [-90; FEATURES];
+            weights[input][input] = 980;
+            weights[input][paired_stream(input)] = 180;
+        }
+
+        let pairs = [
+            [0, 2],
+            [0, 3],
+            [2, 3],
+            [1, 7],
+            [1, 4],
+            [4, 6],
+            [4, 7],
+            [0, 7],
+            [1, 3],
+            [3, 4],
+            [6, 7],
+            [0, 4],
+            [1, 6],
+            [2, 7],
+            [1, 2],
+            [3, 7],
+        ];
+        for (offset, sensors) in pairs.iter().enumerate() {
+            set_sensor_motif(&mut weights[16 + offset], sensors, 500, 420, -80);
+        }
+
+        let onset_tail = [
+            ([0, 2, 3], [7, 7]),
+            ([0, 1, 3], [4, 7]),
+            ([1, 3, 7], [4, 4]),
+            ([1, 2, 7], [0, 0]),
+            ([3, 4, 7], [6, 6]),
+            ([4, 6, 7], [0, 0]),
+            ([0, 4, 6], [7, 7]),
+            ([1, 4, 6], [7, 7]),
+            ([0, 1, 7], [2, 2]),
+            ([2, 3, 7], [1, 1]),
+            ([0, 3, 4], [6, 6]),
+            ([1, 6, 7], [4, 4]),
+            ([0, 2, 7], [3, 3]),
+            ([1, 3, 4], [7, 7]),
+            ([0, 6, 7], [4, 4]),
+            ([2, 4, 7], [1, 1]),
+        ];
+        for (offset, (fast, tail)) in onset_tail.iter().enumerate() {
+            let pattern = 32 + offset;
+            weights[pattern] = [-85; FEATURES];
+            for sensor in fast {
+                weights[pattern][ACTIVE_SENSORS + *sensor] = 430;
+            }
+            for sensor in tail {
+                weights[pattern][*sensor] = 360;
+            }
+        }
+
+        let clusters: [&[usize]; 16] = [
+            &[0, 2, 3],
+            &[1, 7],
+            &[1, 3, 7],
+            &[0, 1, 7],
+            &[1, 4, 7],
+            &[1, 4, 6, 7],
+            &[0, 4, 7],
+            &[0, 4, 6, 7],
+            &[0, 7],
+            &[0, 1, 4, 7],
+            &[0, 4, 6],
+            &[1, 3, 4, 7],
+            &[0, 1, 2],
+            &[2, 3, 4],
+            &[4, 6],
+            &[0, 1, 3, 6],
+        ];
+        for (offset, sensors) in clusters.iter().enumerate() {
+            let pattern = 48 + offset;
+            let rate_weight = if offset % 2 == 0 { 380 } else { 260 };
+            let latency_weight = if offset % 2 == 0 { 260 } else { 380 };
+            set_sensor_motif(
+                &mut weights[pattern],
+                sensors,
+                rate_weight,
+                latency_weight,
+                -70,
+            );
+        }
+
+        Self { weights }
+    }
+
+    fn forward(&self, features: &[f32; FEATURES]) -> [f32; PATTERN_NEURONS] {
+        let mut values = [0.0_f32; PATTERN_NEURONS];
+        for (pattern, value) in values.iter_mut().enumerate() {
+            let mut weighted_sum = 0.0;
+            for (feature, feature_value) in features.iter().enumerate() {
+                weighted_sum += self.weights[pattern][feature] as f32 * feature_value;
+            }
+            *value = (weighted_sum / 1200.0).clamp(0.0, 1.0);
+        }
+        values
+    }
+}
+
+fn paired_stream(input: usize) -> usize {
+    if input < ACTIVE_SENSORS {
+        ACTIVE_SENSORS + input
+    } else {
+        input - ACTIVE_SENSORS
+    }
+}
+
+fn set_sensor_motif(
+    weights: &mut [i16; FEATURES],
+    sensors: &[usize],
+    rate_weight: i16,
+    latency_weight: i16,
+    background: i16,
+) {
+    *weights = [background; FEATURES];
+    for sensor in sensors {
+        weights[*sensor] = rate_weight;
+        weights[ACTIVE_SENSORS + *sensor] = latency_weight;
     }
 }
 
@@ -676,7 +813,9 @@ fn save_model(
 
     let mut file = fs::File::create(output_path)?;
     writeln!(file, "NOSEKNOWS_SNN_STREAM_READOUT_V1")?;
-    writeln!(file, "features={FEATURES}")?;
+    writeln!(file, "features={PATTERN_NEURONS}")?;
+    writeln!(file, "input_features={FEATURES}")?;
+    writeln!(file, "patterns={PATTERN_NEURONS}")?;
     writeln!(file, "outputs={OUTPUTS}")?;
     writeln!(file, "window={}", config.window)?;
     writeln!(file, "stride={}", config.stride)?;

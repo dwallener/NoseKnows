@@ -69,11 +69,12 @@ struct StreamRow {
 }
 
 struct StreamModel {
-    weights: [[f32; FEATURES]; OUTPUTS],
+    weights: [[f32; PATTERN_NEURONS]; OUTPUTS],
     bias: [f32; OUTPUTS],
     window: usize,
     rate_budget: usize,
     latency_budget: usize,
+    uses_patterns: bool,
 }
 
 struct Frame {
@@ -258,10 +259,11 @@ fn build_frames(rows: &[StreamRow], model: &StreamModel) -> Vec<Frame> {
         for feature in &mut features {
             *feature /= divisor;
         }
+        let pattern_features = patterns.forward(&features);
         frames.push(Frame {
             features,
-            patterns: patterns.forward(&features),
-            logits: model.predict(&features),
+            patterns: pattern_features,
+            logits: model.predict(&features, &pattern_features),
         });
     }
 
@@ -865,11 +867,12 @@ fn load_model(path: &Path) -> Result<StreamModel, Box<dyn std::error::Error>> {
     }
 
     let mut model = StreamModel {
-        weights: [[0.0; FEATURES]; OUTPUTS],
+        weights: [[0.0; PATTERN_NEURONS]; OUTPUTS],
         bias: [0.0; OUTPUTS],
         window: 30,
         rate_budget: 5,
         latency_budget: 5,
+        uses_patterns: true,
     };
 
     for line in lines {
@@ -895,10 +898,19 @@ fn load_model(path: &Path) -> Result<StreamModel, Box<dyn std::error::Error>> {
                     .split(',')
                     .map(|value| value.parse::<f32>())
                     .collect::<Result<Vec<_>, _>>()?;
-                if parsed.len() != FEATURES {
-                    return Err(format!("weights for {label} have wrong length").into());
+                if parsed.len() == PATTERN_NEURONS {
+                    model.weights[index].copy_from_slice(&parsed);
+                    model.uses_patterns = true;
+                } else if parsed.len() == FEATURES {
+                    model.weights[index][..FEATURES].copy_from_slice(&parsed);
+                    model.uses_patterns = false;
+                } else {
+                    return Err(format!(
+                        "weights for {label} have wrong length: expected {FEATURES} or {PATTERN_NEURONS}, got {}",
+                        parsed.len()
+                    )
+                    .into());
                 }
-                model.weights[index].copy_from_slice(&parsed);
             }
         }
     }
@@ -907,10 +919,24 @@ fn load_model(path: &Path) -> Result<StreamModel, Box<dyn std::error::Error>> {
 }
 
 impl StreamModel {
-    fn predict(&self, features: &[f32; FEATURES]) -> [f32; OUTPUTS] {
+    fn predict(
+        &self,
+        input_features: &[f32; FEATURES],
+        pattern_features: &[f32; PATTERN_NEURONS],
+    ) -> [f32; OUTPUTS] {
         let mut logits = self.bias;
+        let feature_count = if self.uses_patterns {
+            PATTERN_NEURONS
+        } else {
+            FEATURES
+        };
         for (label, logit) in logits.iter_mut().enumerate() {
-            for (feature, value) in features.iter().enumerate() {
+            for feature in 0..feature_count {
+                let value = if self.uses_patterns {
+                    pattern_features[feature]
+                } else {
+                    input_features[feature]
+                };
                 *logit += self.weights[label][feature] * value;
             }
         }

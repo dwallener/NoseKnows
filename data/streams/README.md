@@ -32,7 +32,7 @@ Train the separate stream readout model with:
 scripts/train_snn_stream.sh
 ```
 
-The initial stream model is intentionally separate from the capture-level accordion model. It trains a rolling, baseline-relative spike-feature readout over a labeled timeline where no-scent rows have all-false 14-label targets.
+The stream model is intentionally separate from the capture-level accordion model, but it uses the same seeded accordion motifs. It trains a rolling, baseline-relative `16 -> 64 -> 14` readout over a labeled timeline where no-scent rows have all-false 14-label targets.
 
 Render a compact stream preview with:
 
@@ -49,4 +49,4 @@ out:    data/streams/stream_preview.svg
 rows:   3000
 ```
 
-The stream preview is a horizontally compact timeline, not the capture-level spike poster. It renders ground truth, ADC traces, rolling input features, diagnostic 64-motif accordion responses, label evidence, and gated readout lanes over the selected row window.
+The stream preview is a horizontally compact timeline, not the capture-level spike poster. It renders ground truth, ADC traces, rolling input features, the 64-motif accordion responses used by the stream readout, label evidence, and gated readout lanes over the selected row window.
