@@ -60,6 +60,27 @@ const RESPONSES: [(&str, [f32; 8]); 14] = [
     ("Fruity", [1200.0, 3800.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2200.0]),
 ];
 
+const PEAK_SECONDS: [f32; 14] = [
+    9.0, 9.0, 9.0, 12.0, 11.0, 12.0, 10.0, 11.0, 11.0, 9.0, 5.0, 6.0, 5.0, 7.0,
+];
+
+const DECAY_T90: [[f32; 8]; 14] = [
+    [0.0, 38.0, 0.0, 0.0, 0.0, 0.0, 0.0, 38.0],
+    [0.0, 40.0, 0.0, 0.0, 40.0, 0.0, 0.0, 40.0],
+    [30.0, 8.0, 0.0, 0.0, 60.0, 0.0, 55.0, 60.0],
+    [180.0, 180.0, 0.0, 0.0, 180.0, 0.0, 180.0, 180.0],
+    [70.0, 70.0, 0.0, 0.0, 95.0, 0.0, 0.0, 85.0],
+    [190.0, 190.0, 0.0, 0.0, 190.0, 0.0, 190.0, 190.0],
+    [75.0, 75.0, 0.0, 0.0, 0.0, 0.0, 0.0, 75.0],
+    [120.0, 120.0, 0.0, 0.0, 120.0, 0.0, 0.0, 120.0],
+    [135.0, 135.0, 0.0, 0.0, 135.0, 0.0, 135.0, 135.0],
+    [35.0, 40.0, 0.0, 10.0, 90.0, 0.0, 0.0, 90.0],
+    [7.0, 7.0, 7.0, 7.0, 0.0, 0.0, 0.0, 7.0],
+    [0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 15.0],
+    [0.0, 6.5, 0.0, 6.5, 0.0, 0.0, 0.0, 6.5],
+    [13.5, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 13.5],
+];
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("response_plot error: {error}");
@@ -103,8 +124,10 @@ fn render_svg() -> String {
     let top = 82.0;
     let cell_w = 92.0;
     let cell_h = 30.0;
+    let grid_h = cell_h * RESPONSES.len() as f32;
+    let grid_gap = 76.0;
     let width = left + cell_w * SENSORS.len() as f32 + 34.0;
-    let height = top + cell_h * RESPONSES.len() as f32 + 72.0;
+    let height = top + grid_h * 3.0 + grid_gap * 2.0 + 96.0;
 
     let mut svg = String::new();
     push_line(
@@ -123,62 +146,19 @@ fn render_svg() -> String {
     );
     push_line(
         &mut svg,
-        r##"<text x="20" y="54" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#657073">Peak 12-bit ADC target by fragrance label and active sensor; darker cells are stronger responses. MQ-4 placeholder omitted.</text>"##,
+        r##"<text x="20" y="54" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#657073">Peak ADC targets, 8-bin peak code, and timing model by fragrance label and active sensor. MQ-4 placeholder omitted.</text>"##,
     );
 
-    for (sensor, name) in SENSORS.iter().enumerate() {
-        let x = left + sensor as f32 * cell_w + cell_w / 2.0;
-        push_line(
-            &mut svg,
-            &format!(
-                r##"<text x="{x:.1}" y="72" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">{}</text>"##,
-                xml_escape(name)
-            ),
-        );
-    }
+    render_headers(&mut svg, left, top - 10.0, cell_w);
+    render_peak_grid(&mut svg, left, top, cell_w, cell_h);
 
-    for (row, (label, values)) in RESPONSES.iter().enumerate() {
-        let y = top + row as f32 * cell_h;
-        push_line(
-            &mut svg,
-            &format!(
-                r##"<text x="20" y="{:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">{}</text>"##,
-                y + 20.0,
-                xml_escape(label)
-            ),
-        );
-        for (sensor, value) in values.iter().enumerate() {
-            let x = left + sensor as f32 * cell_w;
-            let strength = (*value / MAX_ADC).clamp(0.0, 1.0);
-            let fill = heat_color(strength);
-            let text_fill = if strength > 0.62 {
-                "#ffffff"
-            } else {
-                "#263235"
-            };
-            push_line(
-                &mut svg,
-                &format!(
-                    r##"<rect x="{x:.1}" y="{y:.1}" width="{:.1}" height="{:.1}" fill="{fill}" stroke="#d9e0e0" stroke-width="1"/>"##,
-                    cell_w - 2.0,
-                    cell_h - 2.0
-                ),
-            );
-            let text = if *value <= 0.0 {
-                String::from("-")
-            } else {
-                format!("{value:.0}")
-            };
-            push_line(
-                &mut svg,
-                &format!(
-                    r##"<text x="{:.1}" y="{:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="{text_fill}">{text}</text>"##,
-                    x + cell_w / 2.0 - 1.0,
-                    y + 19.0
-                ),
-            );
-        }
-    }
+    let quantized_top = top + grid_h + grid_gap;
+    render_headers(&mut svg, left, quantized_top - 10.0, cell_w);
+    render_quantized_grid(&mut svg, left, quantized_top, cell_w, cell_h);
+
+    let timing_top = quantized_top + grid_h + grid_gap;
+    render_headers(&mut svg, left, timing_top - 10.0, cell_w);
+    render_timing_grid(&mut svg, left, timing_top, cell_w, cell_h);
 
     let legend_x = left;
     let legend_y = height - 34.0;
@@ -212,6 +192,171 @@ fn render_svg() -> String {
     svg
 }
 
+fn render_headers(svg: &mut String, left: f32, y: f32, cell_w: f32) {
+    for (sensor, name) in SENSORS.iter().enumerate() {
+        let x = left + sensor as f32 * cell_w + cell_w / 2.0;
+        push_line(
+            svg,
+            &format!(
+                r##"<text x="{x:.1}" y="{y:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="#526064">{}</text>"##,
+                xml_escape(name)
+            ),
+        );
+    }
+}
+
+fn render_peak_grid(svg: &mut String, left: f32, top: f32, cell_w: f32, cell_h: f32) {
+    render_title(
+        svg,
+        top - 38.0,
+        "Peak target ADC",
+        "12-bit synthetic peak value, clipped at 4095",
+    );
+    render_grid(svg, left, top, cell_w, cell_h, |row, sensor| {
+        let value = RESPONSES[row].1[sensor];
+        if value <= 0.0 {
+            Cell::empty()
+        } else {
+            Cell::new(
+                format!("{value:.0}"),
+                heat_color((value / MAX_ADC).clamp(0.0, 1.0)),
+                value / MAX_ADC,
+            )
+        }
+    });
+}
+
+fn render_quantized_grid(svg: &mut String, left: f32, top: f32, cell_w: f32, cell_h: f32) {
+    render_title(
+        svg,
+        top - 38.0,
+        "Quantized peak code",
+        "8 bins over 0..4095; inactive sensors shown as dash",
+    );
+    render_grid(svg, left, top, cell_w, cell_h, |row, sensor| {
+        let value = RESPONSES[row].1[sensor];
+        if value <= 0.0 {
+            Cell::empty()
+        } else {
+            let bin = quantize_8(value);
+            Cell::new(
+                bin.to_string(),
+                heat_color(bin as f32 / 7.0),
+                bin as f32 / 7.0,
+            )
+        }
+    });
+}
+
+fn render_timing_grid(svg: &mut String, left: f32, top: f32, cell_w: f32, cell_h: f32) {
+    render_title(
+        svg,
+        top - 38.0,
+        "Timing model",
+        "cell text is peak seconds from t0 / decay T90 seconds",
+    );
+    render_grid(svg, left, top, cell_w, cell_h, |row, sensor| {
+        if RESPONSES[row].1[sensor] <= 0.0 {
+            Cell::empty()
+        } else {
+            let peak = PEAK_SECONDS[row];
+            let decay = DECAY_T90[row][sensor];
+            let timing_strength = (peak / 12.0 * 0.35 + decay / 190.0 * 0.65).clamp(0.0, 1.0);
+            Cell::new(
+                format!("{peak:.0}/{decay:.0}s"),
+                time_color(timing_strength),
+                timing_strength,
+            )
+        }
+    });
+}
+
+fn render_title(svg: &mut String, y: f32, title: &str, subtitle: &str) {
+    push_line(
+        svg,
+        &format!(
+            r##"<text x="20" y="{y:.1}" font-family="system-ui,-apple-system,sans-serif" font-size="17" font-weight="700" fill="#263235">{}</text>"##,
+            xml_escape(title)
+        ),
+    );
+    push_line(
+        svg,
+        &format!(
+            r##"<text x="20" y="{:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" fill="#657073">{}</text>"##,
+            y + 17.0,
+            xml_escape(subtitle)
+        ),
+    );
+}
+
+fn render_grid<F>(svg: &mut String, left: f32, top: f32, cell_w: f32, cell_h: f32, mut cell: F)
+where
+    F: FnMut(usize, usize) -> Cell,
+{
+    for (row, (label, _)) in RESPONSES.iter().enumerate() {
+        let y = top + row as f32 * cell_h;
+        push_line(
+            svg,
+            &format!(
+                r##"<text x="20" y="{:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12" fill="#263235">{}</text>"##,
+                y + 20.0,
+                xml_escape(label)
+            ),
+        );
+        for sensor in 0..SENSORS.len() {
+            let x = left + sensor as f32 * cell_w;
+            let cell = cell(row, sensor);
+            let text_fill = if cell.strength > 0.62 {
+                "#ffffff"
+            } else {
+                "#263235"
+            };
+            push_line(
+                svg,
+                &format!(
+                    r##"<rect x="{x:.1}" y="{y:.1}" width="{:.1}" height="{:.1}" fill="{}" stroke="#d9e0e0" stroke-width="1"/>"##,
+                    cell_w - 2.0,
+                    cell_h - 2.0,
+                    cell.fill
+                ),
+            );
+            push_line(
+                svg,
+                &format!(
+                    r##"<text x="{:.1}" y="{:.1}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" text-anchor="middle" fill="{text_fill}">{}</text>"##,
+                    x + cell_w / 2.0 - 1.0,
+                    y + 19.0,
+                    cell.text
+                ),
+            );
+        }
+    }
+}
+
+struct Cell {
+    text: String,
+    fill: String,
+    strength: f32,
+}
+
+impl Cell {
+    fn new(text: String, fill: String, strength: f32) -> Self {
+        Self {
+            text,
+            fill,
+            strength,
+        }
+    }
+
+    fn empty() -> Self {
+        Self::new(String::from("-"), String::from("#eef2f2"), 0.0)
+    }
+}
+
+fn quantize_8(value: f32) -> usize {
+    ((value / MAX_ADC).clamp(0.0, 1.0) * 8.0).floor().min(7.0) as usize
+}
+
 fn heat_color(strength: f32) -> String {
     let strength = strength.clamp(0.0, 1.0);
     let low = (236.0, 242.0, 242.0);
@@ -221,6 +366,25 @@ fn heat_color(strength: f32) -> String {
         (low, mid, strength / 0.55)
     } else {
         (mid, high, (strength - 0.55) / 0.45)
+    };
+    let blend = |left: f32, right: f32| (left + (right - left) * t).round() as u8;
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        blend(a.0, b.0),
+        blend(a.1, b.1),
+        blend(a.2, b.2)
+    )
+}
+
+fn time_color(strength: f32) -> String {
+    let strength = strength.clamp(0.0, 1.0);
+    let low = (236.0, 242.0, 242.0);
+    let mid = (217.0, 154.0, 43.0);
+    let high = (139.0, 86.0, 62.0);
+    let (a, b, t) = if strength < 0.5 {
+        (low, mid, strength / 0.5)
+    } else {
+        (mid, high, (strength - 0.5) / 0.5)
     };
     let blend = |left: f32, right: f32| (left + (right - left) * t).round() as u8;
     format!(
