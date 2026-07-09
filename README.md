@@ -193,6 +193,26 @@ Single-note captures use one real fragrance label followed by two `No Scent` pse
 Citrus,No Scent,No Scent
 ```
 
+For SNN self-test fixtures, keep probe types segregated under `data/selftest/`:
+
+```sh
+cargo run --bin synthesize -- --probe no-scent
+cargo run --bin synthesize -- --probe single
+cargo run --bin synthesize -- --probe two
+cargo run --bin synthesize -- --probe three
+```
+
+These commands generate:
+
+```text
+data/selftest/no_scent    50 clean-air captures
+data/selftest/single_note 14 one-label captures, one per wheel label
+data/selftest/two_note    91 two-label combinations
+data/selftest/three_note  364 three-label combinations
+```
+
+The CSVs are generated data and are ignored by git. The directory contract is tracked in `data/selftest/README.md`.
+
 The matrix maps into the existing 9-column CSV shape as:
 
 ```text
@@ -455,9 +475,16 @@ Separated checks:
 
 ```text
 display-no-scent: 50/50 pass
-display-single:   42/50 pass
-display-two:      waiting for two-note probe captures
-display-three:    waiting for three-note probe captures
+display-single:   42/50 pass on data/raw_single_note_probe
+```
+
+Current segregated exhaustive-probe checkpoint:
+
+```text
+display-no-scent on data/selftest/no_scent:    50/50 pass
+display-single   on data/selftest/single_note: 9/14 pass
+display-two      on data/selftest/two_note:    10/91 pass
+display-three    on data/selftest/three_note:  53/364 pass
 ```
 
 This is the more relevant robustness benchmark. The strict rubric remains useful as a diagnostic because it reveals wrong-dominant and spillover patterns, but it should not be treated as the product acceptance criterion.

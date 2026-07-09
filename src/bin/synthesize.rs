@@ -70,6 +70,16 @@ struct Profile {
 enum GenerationMode {
     Matrix,
     Designer,
+    Probe(ProbeMode),
+}
+
+#[derive(Clone, Copy)]
+enum ProbeMode {
+    NoScent,
+    Single,
+    Two,
+    Three,
+    All,
 }
 
 #[derive(Clone, Copy)]
@@ -334,6 +344,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&config.out_dir)?;
 
     let mut rng = Lcg::new(config.seed);
+    if let GenerationMode::Probe(mode) = config.mode {
+        let samples = probe_samples(mode, &mut rng);
+        write_samples(&config.out_dir, &samples, &mut rng)?;
+        println!(
+            "Wrote {} self-test probe CSV files to {}",
+            samples.len(),
+            config.out_dir.display()
+        );
+        println!("Probe mix: {}", probe_mix_summary(&samples));
+        return Ok(());
+    }
+
     let no_scent_target = if matches!(config.mode, GenerationMode::Matrix) {
         ((config.samples as f32 * config.no_scent_ratio).round() as usize).min(config.samples)
     } else {
@@ -345,16 +367,47 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         0
     };
-    for sample_index in 0..config.samples {
-        let sample = match config.mode {
+    let samples = (0..config.samples)
+        .map(|sample_index| match config.mode {
             GenerationMode::Matrix => matrix_sample(
                 sample_index,
                 &mut rng,
                 matrix_sample_kind(sample_index, no_scent_target, single_note_target),
             ),
             GenerationMode::Designer => designer_sample(sample_index, &mut rng),
-        };
-        let path = config.out_dir.join(format!("{}.csv", sample.id));
+            GenerationMode::Probe(_) => unreachable!("probe mode returned early"),
+        })
+        .collect::<Vec<_>>();
+    write_samples(&config.out_dir, &samples, &mut rng)?;
+
+    println!(
+        "Wrote {} {} synthetic CSV files to {}",
+        config.samples,
+        match config.mode {
+            GenerationMode::Matrix => "numeric-matrix",
+            GenerationMode::Designer => "designer-phase",
+            GenerationMode::Probe(_) => unreachable!("probe mode returned early"),
+        },
+        config.out_dir.display()
+    );
+    if matches!(config.mode, GenerationMode::Matrix) {
+        println!(
+            "Matrix mix: no_scent={} single_note={} multi_label={}",
+            no_scent_target,
+            single_note_target,
+            config.samples - no_scent_target - single_note_target
+        );
+    }
+    Ok(())
+}
+
+fn write_samples(
+    out_dir: &PathBuf,
+    samples: &[SyntheticSample],
+    rng: &mut Lcg,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for (sample_index, sample) in samples.iter().enumerate() {
+        let path = out_dir.join(format!("{}.csv", sample.id));
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
 
@@ -416,24 +469,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(writer)?;
         }
     }
-
-    println!(
-        "Wrote {} {} synthetic CSV files to {}",
-        config.samples,
-        match config.mode {
-            GenerationMode::Matrix => "numeric-matrix",
-            GenerationMode::Designer => "designer-phase",
-        },
-        config.out_dir.display()
-    );
-    if matches!(config.mode, GenerationMode::Matrix) {
-        println!(
-            "Matrix mix: no_scent={} single_note={} multi_label={}",
-            no_scent_target,
-            single_note_target,
-            config.samples - no_scent_target - single_note_target
-        );
-    }
     Ok(())
 }
 
@@ -444,6 +479,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut mode = GenerationMode::Matrix;
     let mut no_scent_ratio: f32 = 0.25;
     let mut single_note_ratio: f32 = 0.0;
+    let mut explicit_out = false;
 
     let args: Vec<String> = env::args().skip(1).collect();
     let mut index = 0;
@@ -452,6 +488,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             "--out" => {
                 index += 1;
                 out_dir = PathBuf::from(args.get(index).ok_or("--out requires a path")?);
+                explicit_out = true;
             }
             "--samples" => {
                 index += 1;
@@ -466,6 +503,12 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--designer" => {
                 mode = GenerationMode::Designer;
+            }
+            "--probe" => {
+                index += 1;
+                mode = GenerationMode::Probe(parse_probe_mode(
+                    args.get(index).ok_or("--probe requires a value")?,
+                )?);
             }
             "--no-scent-ratio" => {
                 index += 1;
@@ -483,13 +526,19 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer] [--no-scent-ratio 0.25] [--single-note-ratio 0.0]"
+                    "Usage: cargo run --bin synthesize -- [--out data/raw] [--samples 100] [--designer] [--probe no-scent|single|two|three|all] [--no-scent-ratio 0.25] [--single-note-ratio 0.0]"
                 );
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument: {other}").into()),
         }
         index += 1;
+    }
+
+    if let GenerationMode::Probe(mode) = mode {
+        if !explicit_out {
+            out_dir = default_probe_dir(mode);
+        }
     }
 
     Ok(Config {
@@ -500,6 +549,30 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         no_scent_ratio: no_scent_ratio.clamp(0.0, 1.0),
         single_note_ratio: single_note_ratio.clamp(0.0, 1.0),
     })
+}
+
+fn parse_probe_mode(value: &str) -> Result<ProbeMode, Box<dyn std::error::Error>> {
+    match value {
+        "no-scent" | "none" => Ok(ProbeMode::NoScent),
+        "single" | "single-note" => Ok(ProbeMode::Single),
+        "two" | "two-note" => Ok(ProbeMode::Two),
+        "three" | "three-note" => Ok(ProbeMode::Three),
+        "all" => Ok(ProbeMode::All),
+        other => Err(format!(
+            "unknown probe mode {other}; expected no-scent, single, two, three, or all"
+        )
+        .into()),
+    }
+}
+
+fn default_probe_dir(mode: ProbeMode) -> PathBuf {
+    match mode {
+        ProbeMode::NoScent => PathBuf::from("data/selftest/no_scent"),
+        ProbeMode::Single => PathBuf::from("data/selftest/single_note"),
+        ProbeMode::Two => PathBuf::from("data/selftest/two_note"),
+        ProbeMode::Three => PathBuf::from("data/selftest/three_note"),
+        ProbeMode::All => PathBuf::from("data/selftest/all"),
+    }
 }
 
 fn matrix_sample(sample_index: usize, rng: &mut Lcg, kind: MatrixSampleKind) -> SyntheticSample {
@@ -575,6 +648,115 @@ fn single_note_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
             start_secs: 0.0,
         }],
     }
+}
+
+fn probe_samples(mode: ProbeMode, rng: &mut Lcg) -> Vec<SyntheticSample> {
+    let mut samples = Vec::new();
+    if matches!(mode, ProbeMode::NoScent | ProbeMode::All) {
+        for index in 0..50 {
+            samples.push(no_scent_sample(index));
+        }
+    }
+    if matches!(mode, ProbeMode::Single | ProbeMode::All) {
+        for (index, label) in LABELS.iter().enumerate() {
+            samples.push(exhaustive_note_sample(
+                format!("single_{}", label_slug(label)),
+                format!("Single {label}"),
+                [*label, NO_SCENT_LABEL, NO_SCENT_LABEL],
+                &[(label, 1.0)],
+                rng,
+                index,
+            ));
+        }
+    }
+    if matches!(mode, ProbeMode::Two | ProbeMode::All) {
+        let mut index = 0;
+        for first in 0..LABELS.len() {
+            for second in first + 1..LABELS.len() {
+                let labels = [LABELS[first], LABELS[second], NO_SCENT_LABEL];
+                samples.push(exhaustive_note_sample(
+                    format!("two_{}_{}", label_slug(labels[0]), label_slug(labels[1])),
+                    format!("Two {} + {}", labels[0], labels[1]),
+                    labels,
+                    &[(labels[0], 1.0), (labels[1], 0.66)],
+                    rng,
+                    index,
+                ));
+                index += 1;
+            }
+        }
+    }
+    if matches!(mode, ProbeMode::Three | ProbeMode::All) {
+        let mut index = 0;
+        for first in 0..LABELS.len() {
+            for second in first + 1..LABELS.len() {
+                for third in second + 1..LABELS.len() {
+                    let labels = [LABELS[first], LABELS[second], LABELS[third]];
+                    samples.push(exhaustive_note_sample(
+                        format!(
+                            "three_{}_{}_{}",
+                            label_slug(labels[0]),
+                            label_slug(labels[1]),
+                            label_slug(labels[2])
+                        ),
+                        format!("Three {} + {} + {}", labels[0], labels[1], labels[2]),
+                        labels,
+                        &[(labels[0], 1.0), (labels[1], 0.66), (labels[2], 0.33)],
+                        rng,
+                        index,
+                    ));
+                    index += 1;
+                }
+            }
+        }
+    }
+    samples
+}
+
+fn exhaustive_note_sample(
+    id_prefix: String,
+    name: String,
+    labels: [&'static str; 3],
+    weighted_labels: &[(&'static str, f32)],
+    rng: &mut Lcg,
+    index: usize,
+) -> SyntheticSample {
+    SyntheticSample {
+        id: format!("{id_prefix}_{index:04}"),
+        name: format!("{name} {index:04}"),
+        labels,
+        phases: weighted_labels
+            .iter()
+            .map(|(label, weight)| PhaseProfile {
+                profile: varied_profile(profile_for_label(label), rng),
+                weight: *weight,
+                start_secs: 0.0,
+            })
+            .collect(),
+    }
+}
+
+fn label_slug(label: &str) -> String {
+    label
+        .to_ascii_lowercase()
+        .replace(' ', "_")
+        .replace('-', "_")
+}
+
+fn probe_mix_summary(samples: &[SyntheticSample]) -> String {
+    let mut counts = [0_usize; 4];
+    for sample in samples {
+        let real = sample
+            .labels
+            .iter()
+            .filter(|label| !label.eq_ignore_ascii_case(NO_SCENT_LABEL))
+            .count();
+        counts[real] += 1;
+    }
+    format!(
+        "no_scent={} single_note={} two_note={} three_note={}",
+        counts[0], counts[1], counts[2], counts[3]
+    )
 }
 
 fn designer_sample(sample_index: usize, rng: &mut Lcg) -> SyntheticSample {
@@ -991,5 +1173,47 @@ mod tests {
         assert_eq!(sample.labels[1], NO_SCENT_LABEL);
         assert_eq!(sample.labels[2], NO_SCENT_LABEL);
         assert_eq!(sample.phases.len(), 1);
+    }
+
+    #[test]
+    fn two_note_probe_has_all_pair_combinations() {
+        let mut rng = Lcg::new(123);
+        let samples = probe_samples(ProbeMode::Two, &mut rng);
+
+        assert_eq!(samples.len(), 91);
+        assert!(samples
+            .iter()
+            .all(|sample| sample.labels[0] != NO_SCENT_LABEL));
+        assert!(samples
+            .iter()
+            .all(|sample| sample.labels[1] != NO_SCENT_LABEL));
+        assert!(samples
+            .iter()
+            .all(|sample| sample.labels[2] == NO_SCENT_LABEL));
+        assert!(samples.iter().all(|sample| sample.phases.len() == 2));
+    }
+
+    #[test]
+    fn three_note_probe_has_all_triple_combinations() {
+        let mut rng = Lcg::new(123);
+        let samples = probe_samples(ProbeMode::Three, &mut rng);
+
+        assert_eq!(samples.len(), 364);
+        assert!(samples
+            .iter()
+            .all(|sample| sample.labels.iter().all(|label| *label != NO_SCENT_LABEL)));
+        assert!(samples.iter().all(|sample| sample.phases.len() == 3));
+    }
+
+    #[test]
+    fn all_probe_keeps_buckets_segregated_by_label_count() {
+        let mut rng = Lcg::new(123);
+        let samples = probe_samples(ProbeMode::All, &mut rng);
+
+        assert_eq!(samples.len(), 519);
+        assert_eq!(
+            probe_mix_summary(&samples),
+            "no_scent=50 single_note=14 two_note=91 three_note=364"
+        );
     }
 }

@@ -43,7 +43,8 @@
   - Use `--rubric display` / `--rubric display-all` only as an aggregate display check.
   - Keep the default strict rubric as a diagnostic for top-1/spillover failure analysis.
   - Current display-rubric checkpoint: 92/100 overall, 50/50 no-scent silent, 42/50 single-note pass.
-  - Two-note and three-note display rubrics are implemented, but still need dedicated probe datasets before their pass rates mean anything.
+  - Segregated self-test fixtures live under `data/selftest/`: `no_scent`, `single_note`, `two_note`, and `three_note`.
+  - Current segregated exhaustive-probe checkpoint: no-scent 50/50, single 9/14, two 10/91, three 53/364.
   - Current checkpoint: no-scent passes, but several single-note classes are still silent or confused in the accordion LIF readout.
   - Current largest dominant-label confusions: Fruity -> Woods, Green -> Floral, Water -> Floral, and several Amber/Woods-family labels -> Silent.
   - Current failure split after targeted tuning: raw_silent=3, gate_silent=3, wrong_dominant=9, spillover=6, no_scent_fp=0.
