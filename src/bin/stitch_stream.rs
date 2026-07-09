@@ -7,7 +7,8 @@ const CHANNELS: usize = 9;
 const NO_SCENT_LABEL: &str = "No Scent";
 const DEFAULT_INPUT: &str = "data/training/snn_comprehensive";
 const DEFAULT_OUTPUT: &str = "data/streams/snn_comprehensive_stream.csv";
-const DEFAULT_NO_SCENT_RATIO: f32 = 0.5;
+const DEFAULT_INITIAL_NO_SCENT_CAPTURES: usize = 3;
+const DEFAULT_MAX_GAP_NO_SCENT_CAPTURES: usize = 3;
 const SAMPLE_PERIOD_MS: u64 = 100;
 
 const LABELS: [&str; 14] = [
@@ -30,7 +31,8 @@ const LABELS: [&str; 14] = [
 struct Config {
     input_dir: PathBuf,
     output_path: PathBuf,
-    no_scent_ratio: f32,
+    initial_no_scent_captures: usize,
+    max_gap_no_scent_captures: usize,
     seed: u64,
     limit: Option<usize>,
 }
@@ -78,7 +80,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         scent.truncate(limit.min(scent.len()));
     }
 
-    let gap_multiplier = config.no_scent_ratio / (1.0 - config.no_scent_ratio);
     let mut gap_source = GapSource::new(no_scent);
 
     if let Some(parent) = config.output_path.parent() {
@@ -93,41 +94,55 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream_row = 0_u64;
     let mut no_scent_rows_written = 0_usize;
     let mut scent_rows_written = 0_usize;
-    for (segment_index, capture) in scent.iter().enumerate() {
-        for row in &capture.rows {
-            write_row(
-                &mut file,
-                stream_row,
-                segment_index,
-                "scent",
-                &capture.id,
-                &capture.name,
-                &capture.labels,
-                *row,
-            )?;
-            stream_row += 1;
-            scent_rows_written += 1;
-        }
+    let mut stream_segment = 0_usize;
+    let no_scent_labels = [
+        NO_SCENT_LABEL.to_string(),
+        NO_SCENT_LABEL.to_string(),
+        NO_SCENT_LABEL.to_string(),
+    ];
 
-        let desired_gap = (capture.rows.len() as f32 * gap_multiplier).round() as usize;
-        for _ in 0..desired_gap {
-            let (source_id, row) = gap_source.next_row();
-            write_row(
+    for _ in 0..config.initial_no_scent_captures {
+        let gap = gap_source.next_capture();
+        no_scent_rows_written += write_capture_rows(
+            &mut file,
+            &mut stream_row,
+            stream_segment,
+            "no_scent",
+            &gap.id,
+            "Stream No Scent Prelude",
+            &no_scent_labels,
+            &gap.rows,
+        )?;
+        stream_segment += 1;
+    }
+
+    for capture in &scent {
+        scent_rows_written += write_capture_rows(
+            &mut file,
+            &mut stream_row,
+            stream_segment,
+            "scent",
+            &capture.id,
+            &capture.name,
+            &capture.labels,
+            &capture.rows,
+        )?;
+        stream_segment += 1;
+
+        let gap_count = rng.range_usize(0, config.max_gap_no_scent_captures + 1);
+        for _ in 0..gap_count {
+            let gap = gap_source.next_capture();
+            no_scent_rows_written += write_capture_rows(
                 &mut file,
-                stream_row,
-                segment_index,
+                &mut stream_row,
+                stream_segment,
                 "no_scent",
-                source_id,
+                &gap.id,
                 "Stream No Scent Gap",
-                &[
-                    NO_SCENT_LABEL.to_string(),
-                    NO_SCENT_LABEL.to_string(),
-                    NO_SCENT_LABEL.to_string(),
-                ],
-                row,
+                &no_scent_labels,
+                &gap.rows,
             )?;
-            stream_row += 1;
-            no_scent_rows_written += 1;
+            stream_segment += 1;
         }
     }
 
@@ -142,12 +157,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.output_path.display()
     );
     println!(
-        "Stream segments={} rows={} scent_rows={} no_scent_rows={} no_scent_ratio={:.3}",
+        "Stream scent_segments={} total_segments={} rows={} scent_rows={} no_scent_rows={} no_scent_ratio={:.3} initial_no_scent={} max_gap_no_scent={}",
         scent.len(),
+        stream_segment,
         total,
         scent_rows_written,
         no_scent_rows_written,
-        actual_no_scent_ratio
+        actual_no_scent_ratio,
+        config.initial_no_scent_captures,
+        config.max_gap_no_scent_captures
     );
     Ok(())
 }
@@ -155,7 +173,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 struct GapSource {
     captures: Vec<Capture>,
     capture_index: usize,
-    row_index: usize,
 }
 
 impl GapSource {
@@ -163,23 +180,40 @@ impl GapSource {
         Self {
             captures,
             capture_index: 0,
-            row_index: 0,
         }
     }
 
-    fn next_row(&mut self) -> (&str, [u16; CHANNELS]) {
-        let capture = &self.captures[self.capture_index];
-        let row = capture.rows[self.row_index];
-        let source_id = capture.id.as_str();
-
-        self.row_index += 1;
-        if self.row_index >= capture.rows.len() {
-            self.row_index = 0;
-            self.capture_index = (self.capture_index + 1) % self.captures.len();
-        }
-
-        (source_id, row)
+    fn next_capture(&mut self) -> Capture {
+        let capture = self.captures[self.capture_index].clone();
+        self.capture_index = (self.capture_index + 1) % self.captures.len();
+        capture
     }
+}
+
+fn write_capture_rows(
+    file: &mut fs::File,
+    stream_row: &mut u64,
+    segment_index: usize,
+    kind: &str,
+    source_id: &str,
+    sample_name: &str,
+    labels: &[String; 3],
+    rows: &[[u16; CHANNELS]],
+) -> Result<usize, Box<dyn std::error::Error>> {
+    for row in rows {
+        write_row(
+            file,
+            *stream_row,
+            segment_index,
+            kind,
+            source_id,
+            sample_name,
+            labels,
+            *row,
+        )?;
+        *stream_row += 1;
+    }
+    Ok(rows.len())
 }
 
 fn write_row(
@@ -227,7 +261,8 @@ fn write_row(
 fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut input_dir = PathBuf::from(DEFAULT_INPUT);
     let mut output_path = PathBuf::from(DEFAULT_OUTPUT);
-    let mut no_scent_ratio = DEFAULT_NO_SCENT_RATIO;
+    let mut initial_no_scent_captures = DEFAULT_INITIAL_NO_SCENT_CAPTURES;
+    let mut max_gap_no_scent_captures = DEFAULT_MAX_GAP_NO_SCENT_CAPTURES;
     let mut seed = 0x57_ea_3_u64;
     let mut limit = None;
 
@@ -243,11 +278,18 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                 index += 1;
                 output_path = PathBuf::from(args.get(index).ok_or("--out requires a path")?);
             }
-            "--no-scent-ratio" => {
+            "--initial-no-scent-captures" => {
                 index += 1;
-                no_scent_ratio = args
+                initial_no_scent_captures = args
                     .get(index)
-                    .ok_or("--no-scent-ratio requires a value")?
+                    .ok_or("--initial-no-scent-captures requires a value")?
+                    .parse()?;
+            }
+            "--max-gap-no-scent-captures" => {
+                index += 1;
+                max_gap_no_scent_captures = args
+                    .get(index)
+                    .ok_or("--max-gap-no-scent-captures requires a value")?
                     .parse()?;
             }
             "--seed" => {
@@ -260,7 +302,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin stitch_stream -- [--input data/training/snn_comprehensive] [--out data/streams/snn_comprehensive_stream.csv] [--no-scent-ratio 0.5] [--limit N]"
+                    "Usage: cargo run --bin stitch_stream -- [--input data/training/snn_comprehensive] [--out data/streams/snn_comprehensive_stream.csv] [--initial-no-scent-captures 3] [--max-gap-no-scent-captures 3] [--limit N]"
                 );
                 std::process::exit(0);
             }
@@ -269,14 +311,15 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         index += 1;
     }
 
-    if !(0.01..0.99).contains(&no_scent_ratio) {
-        return Err("--no-scent-ratio must be > 0.01 and < 0.99".into());
+    if initial_no_scent_captures == 0 {
+        return Err("--initial-no-scent-captures must be at least 1".into());
     }
 
     Ok(Config {
         input_dir,
         output_path,
-        no_scent_ratio,
+        initial_no_scent_captures,
+        max_gap_no_scent_captures,
         seed,
         limit,
     })
@@ -456,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn gap_source_preserves_capture_row_order() {
+    fn gap_source_preserves_whole_capture_order() {
         let captures = vec![Capture {
             id: "gap_a".to_string(),
             name: "Gap A".to_string(),
@@ -468,10 +511,10 @@ mod tests {
             rows: vec![[1; CHANNELS], [2; CHANNELS], [3; CHANNELS]],
         }];
         let mut source = GapSource::new(captures);
+        let first = source.next_capture();
+        let second = source.next_capture();
 
-        assert_eq!(source.next_row().1[0], 1);
-        assert_eq!(source.next_row().1[0], 2);
-        assert_eq!(source.next_row().1[0], 3);
-        assert_eq!(source.next_row().1[0], 1);
+        assert_eq!(first.rows.iter().map(|row| row[0]).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(second.rows.iter().map(|row| row[0]).collect::<Vec<_>>(), [1, 2, 3]);
     }
 }

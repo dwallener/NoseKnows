@@ -18,7 +18,7 @@
 
 - Defer overlapping/realtime scent classification until the single-fragrance capture path is stable.
 - Keep the first continuous-training stream constrained to one fragrance exposure at a time with explicit no-scent gaps.
-- Use `scripts/build_snn_stream_dataset.sh` to stitch generated capture datasets into long labeled streams with about 50% no-scent rows.
+- Use `scripts/build_snn_stream_dataset.sh` to stitch generated capture datasets into long labeled streams with an initial no-scent prelude and random whole-capture no-scent gaps after each scent segment.
 - Use `scripts/train_snn_stream.sh` for the separate stream readout model; do not replace the capture-level accordion model with it yet.
 - Current stream scaffold walks one row at a time and trains rolling baseline-relative rate/delta spike features against sparse per-row labels.
 - Next stream-model step: decide whether to move the stream trainer from the 16-feature rolling readout to the full 64-pattern accordion state.
