@@ -281,6 +281,16 @@ Train against the comprehensive SNN set with:
 cargo run --bin snn_train -- --data data/training/snn_comprehensive --out data/models/snn_accordion_comprehensive.nsm --epochs 250 --validation 0.2 --accordion
 ```
 
+For the current 1-note peak-code experiment, train the pairwise accordion readout with:
+
+```sh
+scripts/train_peak_pair.sh
+```
+
+This path intentionally narrows the task to no-scent plus single-note captures. It applies an 8-second per-sensor peak sample-and-hold, quantizes the 8 active sensor peaks into 8 bins, expands those bins through pairwise relationship features, then trains only the final `240 -> 14` readout. The accordion feature basis asks sensor-relationship questions such as coactivation, contrast, joint saturation, and high/absent pairs; it does not hand-code fragrance-label rules.
+
+The first run over `data/training/snn_comprehensive` loaded 156 no-scent/single-note captures and reached 100% validation p@1 with 100% no-scent silence by epoch 25. Treat this as proof that the one-note peak signature is clean in the current synthetic matrix, not as a solution for 2- or 3-note compression/saturation mixtures.
+
 For continuous-training experiments, build a long labeled stream from the same capture dataset:
 
 ```sh
