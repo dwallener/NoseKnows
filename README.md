@@ -255,6 +255,8 @@ default         8 captures per scent-count bucket,   3 epochs,  20,000 viewer ro
 
 The viewer is downsampled into bounded buckets so it remains practical as a local HTML file. It includes a full-stream minimap, a scrub control, previous/next window buttons, and a jump-to-active button.
 
+The interactive viewer keeps the main window four stitched stream samples wide. The scrubber, previous button, and next button advance in whole `stream_segment` increments so the viewport stays aligned to the generated sample boundaries.
+
 The older `scripts/smoke_snn_stream_all.sh` command remains as a compatibility wrapper for `scripts/run_everything.sh --smoke`.
 
 Build the current comprehensive SNN training dataset with:

@@ -63,6 +63,7 @@ struct Config {
 
 #[derive(Clone)]
 struct StreamRow {
+    segment: String,
     target: [bool; OUTPUTS],
     adc: [f32; CHANNELS],
 }
@@ -95,6 +96,14 @@ struct Bucket {
     logits: [f32; OUTPUTS],
 }
 
+struct SegmentView {
+    id: String,
+    start_row: usize,
+    end_row: usize,
+    start_bucket: usize,
+    end_bucket: usize,
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("stream_viewer error: {error}");
@@ -117,7 +126,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let frames = build_frames(rows, &model);
     let buckets = build_buckets(rows, &frames, start, config.max_buckets);
-    let html = render_html(&buckets, &model, &config, start, end);
+    let html = render_html(rows, &buckets, &model, &config, start, end);
     if let Some(parent) = config.output_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -336,7 +345,55 @@ fn build_buckets(
     buckets
 }
 
+fn build_segments(rows: &[StreamRow], buckets: &[Bucket], global_start: usize) -> Vec<SegmentView> {
+    let mut segments = Vec::new();
+    if rows.is_empty() || buckets.is_empty() {
+        return segments;
+    }
+
+    let mut current_id = rows[0].segment.clone();
+    let mut current_start = 0_usize;
+    for index in 1..=rows.len() {
+        let changed = index == rows.len() || rows[index].segment != current_id;
+        if changed {
+            let start_row = global_start + current_start;
+            let end_row = global_start + index;
+            let start_bucket = bucket_start_for_row(buckets, start_row);
+            segments.push(SegmentView {
+                id: current_id.clone(),
+                start_row,
+                end_row,
+                start_bucket,
+                end_bucket: bucket_end_for_row(buckets, end_row).max(start_bucket + 1),
+            });
+            if index < rows.len() {
+                current_id = rows[index].segment.clone();
+                current_start = index;
+            }
+        }
+    }
+
+    segments
+}
+
+fn bucket_start_for_row(buckets: &[Bucket], row: usize) -> usize {
+    let mut index = 0;
+    while index < buckets.len() && buckets[index].end_row <= row {
+        index += 1;
+    }
+    index.min(buckets.len().saturating_sub(1))
+}
+
+fn bucket_end_for_row(buckets: &[Bucket], row: usize) -> usize {
+    let mut index = 0;
+    while index < buckets.len() && buckets[index].start_row < row {
+        index += 1;
+    }
+    index.min(buckets.len())
+}
+
 fn render_html(
+    rows: &[StreamRow],
     buckets: &[Bucket],
     model: &StreamModel,
     config: &Config,
@@ -347,6 +404,8 @@ fn render_html(
     let features = matrix_json(buckets, |bucket| &bucket.features);
     let patterns = matrix_json(buckets, |bucket| &bucket.patterns);
     let logits = matrix_json(buckets, |bucket| &bucket.logits);
+    let segments = build_segments(rows, buckets, start);
+    let segment_data = segments_json(&segments);
     let truth = buckets
         .iter()
         .map(|bucket| bucket.truth_mask.to_string())
@@ -427,6 +486,7 @@ canvas {{ display:block; width:100%; height:auto; background:var(--bg); }}
 <script>
 const DATA = {{
   rows:[{bucket_rows}],
+  segments:{segments_json},
   truth:[{truth}],
   adc:{adc},
   features:{features},
@@ -450,8 +510,8 @@ const scrub = document.getElementById('scrub');
 const meta = document.getElementById('meta');
 const status = document.getElementById('status');
 const left = 218, right = 24, topY = 74, panelW = 1120;
-const viewportBuckets = Math.min(DATA.window, DATA.rows.length);
-scrub.max = Math.max(0, DATA.rows.length - viewportBuckets);
+const viewportSegments = Math.min(4, DATA.segments.length);
+scrub.max = Math.max(0, DATA.segments.length - viewportSegments);
 scrub.value = 0;
 
 function reportError(error) {{
@@ -476,9 +536,11 @@ function section(title, subtitle, y) {{
   text(title, 8, y - 18, 18, '#263235', '700', 'left', 'system-ui,-apple-system,sans-serif');
   if (subtitle) text(subtitle, 8, y - 4, 11, '#657073');
 }}
-function bucketsFor(start) {{
-  const end = Math.min(DATA.rows.length, start + viewportBuckets);
-  return [start, end];
+function bucketsFor(segmentStart) {{
+  const segmentEnd = Math.min(DATA.segments.length, segmentStart + viewportSegments);
+  const start = DATA.segments[segmentStart]?.startBucket ?? 0;
+  const end = DATA.segments[segmentEnd - 1]?.endBucket ?? DATA.rows.length;
+  return [start, Math.max(start + 1, Math.min(DATA.rows.length, end)), segmentEnd];
 }}
 function valueRange(matrix, start, end, lane) {{
   let max = 1;
@@ -513,8 +575,9 @@ function renderMinimap(start) {{
       }}
     }}
   }}
-  const vx = left + start / Math.max(1, span - viewportBuckets) * (panelW - Math.max(4, panelW * viewportBuckets / span));
-  const vw = Math.max(4, panelW * viewportBuckets / span);
+  const [viewStart, viewEnd] = bucketsFor(start);
+  const vx = left + viewStart / Math.max(1, span) * panelW;
+  const vw = Math.max(4, (viewEnd - viewStart) / Math.max(1, span) * panelW);
   ctx.strokeStyle = '#263235'; ctx.lineWidth = 1.5; ctx.strokeRect(vx, y - 2, vw, h + 4);
 }}
 function renderTruth(start, end, y) {{
@@ -588,16 +651,16 @@ function renderLabelPanel(start,end,y,gated=false) {{
 }}
 function draw() {{
   try {{
-    const start = Number(scrub.value);
-    const [a,b] = bucketsFor(start);
+    const segmentStart = Number(scrub.value);
+    const [a,b,segmentEnd] = bucketsFor(segmentStart);
     canvas.width = Math.max(1220, window.innerWidth - 28);
     const scale = Math.min(1, (canvas.width - left - right) / panelW);
     canvas.height = 1540 * scale;
     ctx.setTransform(scale,0,0,scale,0,0);
     rect(0,0,canvas.width / scale,canvas.height / scale,'#f6f8f8');
     text('stream timeline', 8, 24, 22, '#263235', '700', 'left', 'system-ui,-apple-system,sans-serif');
-    meta.textContent = `rows ${{DATA.rows[a][0]}}..${{DATA.rows[b-1][1]}} / ${{DATA.streamStart}}..${{DATA.streamEnd}} · buckets ${{a}}..${{b}} / ${{DATA.rows.length}} · model window=${{DATA.modelWindow}}`;
-    renderMinimap(start);
+    meta.textContent = `rows ${{DATA.rows[a][0]}}..${{DATA.rows[b-1][1]}} / ${{DATA.streamStart}}..${{DATA.streamEnd}} · samples ${{segmentStart}}..${{segmentEnd}} / ${{DATA.segments.length}} · buckets ${{a}}..${{b}} / ${{DATA.rows.length}} · model window=${{DATA.modelWindow}}`;
+    renderMinimap(segmentStart);
     let y = topY;
     renderTruth(a,b,y); y += 58;
     renderAdc(a,b,y); y += 210;
@@ -615,16 +678,17 @@ function draw() {{
 }}
 function jumpActive(dir=1) {{
   let i = Number(scrub.value) + dir;
-  while (i >= 0 && i < DATA.rows.length - viewportBuckets) {{
+  while (i >= 0 && i <= Number(scrub.max)) {{
     let active = false;
-    for (let j=i; j<Math.min(DATA.rows.length, i + viewportBuckets); j++) if (DATA.truth[j]) {{ active = true; break; }}
+    const [a,b] = bucketsFor(i);
+    for (let j=a; j<b; j++) if (DATA.truth[j]) {{ active = true; break; }}
     if (active) {{ scrub.value = i; draw(); return; }}
-    i += dir * viewportBuckets;
+    i += dir;
   }}
 }}
 scrub.addEventListener('input', draw);
-document.getElementById('prev').onclick = () => {{ scrub.value = Math.max(0, Number(scrub.value) - Math.floor(viewportBuckets * .75)); draw(); }};
-document.getElementById('next').onclick = () => {{ scrub.value = Math.min(Number(scrub.max), Number(scrub.value) + Math.floor(viewportBuckets * .75)); draw(); }};
+document.getElementById('prev').onclick = () => {{ scrub.value = Math.max(0, Number(scrub.value) - 1); draw(); }};
+document.getElementById('next').onclick = () => {{ scrub.value = Math.min(Number(scrub.max), Number(scrub.value) + 1); draw(); }};
 document.getElementById('active').onclick = () => jumpActive(1);
 window.addEventListener('keydown', e => {{
   if (e.key === 'ArrowLeft') document.getElementById('prev').click();
@@ -636,6 +700,7 @@ requestAnimationFrame(draw);
 </body>
 </html>"##,
         bucket_rows = bucket_rows,
+        segments_json = segment_data,
         truth = truth,
         adc = adc,
         features = features,
@@ -687,6 +752,27 @@ fn string_array_json<const N: usize>(values: &[&str; N]) -> String {
     output
 }
 
+fn segments_json(segments: &[SegmentView]) -> String {
+    let mut output = String::new();
+    output.push('[');
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        let _ = write!(
+            output,
+            r#"{{"id":"{}","rowStart":{},"rowEnd":{},"startBucket":{},"endBucket":{}}}"#,
+            escape_json(&segment.id),
+            segment.start_row,
+            segment.end_row,
+            segment.start_bucket,
+            segment.end_bucket
+        );
+    }
+    output.push(']');
+    output
+}
+
 fn string_vec_json(values: &[String]) -> String {
     let mut output = String::new();
     output.push('[');
@@ -717,6 +803,10 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
     };
 
     let label_indexes = [index("label_1")?, index("label_2")?, index("label_3")?];
+    let segment_index = header_fields
+        .iter()
+        .position(|field| field == "stream_segment")
+        .or_else(|| header_fields.iter().position(|field| field == "sample_id"));
     let adc_indexes = [
         index("adc0")?,
         index("adc1")?,
@@ -743,6 +833,10 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
             fields[label_indexes[1]].clone(),
             fields[label_indexes[2]].clone(),
         ];
+        let segment = segment_index
+            .and_then(|index| fields.get(index))
+            .cloned()
+            .unwrap_or_else(|| format!("row_{:010}", rows.len()));
         let mut target = [false; OUTPUTS];
         for label in &labels {
             if let Some(index) = label_index(label) {
@@ -753,7 +847,11 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
         for (channel, field_index) in adc_indexes.iter().enumerate() {
             adc[channel] = fields[*field_index].parse::<f32>().unwrap_or(0.0);
         }
-        rows.push(StreamRow { target, adc });
+        rows.push(StreamRow {
+            segment,
+            target,
+            adc,
+        });
     }
     Ok(rows)
 }
@@ -1011,5 +1109,48 @@ mod tests {
         let amplitude =
             ((250.0 - CLEAN_AIR_FLOOR_ADC) / (MAX_ADC - CLEAN_AIR_FLOOR_ADC)).clamp(0.0, 1.0);
         assert_eq!(rate_feature(amplitude, 5), 0.0);
+    }
+
+    #[test]
+    fn segments_map_to_bucket_boundaries() {
+        let rows = ["seg_a", "seg_a", "seg_b", "seg_b", "seg_c"]
+            .into_iter()
+            .map(|segment| StreamRow {
+                segment: segment.to_string(),
+                target: [false; OUTPUTS],
+                adc: [0.0; CHANNELS],
+            })
+            .collect::<Vec<_>>();
+        let bucket = |start_row, end_row| Bucket {
+            start_row,
+            end_row,
+            truth_mask: 0,
+            adc: [0.0; CHANNELS],
+            features: [0.0; FEATURES],
+            patterns: [0.0; PATTERN_NEURONS],
+            logits: [0.0; OUTPUTS],
+        };
+        let buckets = vec![bucket(100, 102), bucket(102, 104), bucket(104, 105)];
+
+        let segments = build_segments(&rows, &buckets, 100);
+
+        assert_eq!(segments.len(), 3);
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| (
+                    segment.id.as_str(),
+                    segment.start_row,
+                    segment.end_row,
+                    segment.start_bucket,
+                    segment.end_bucket,
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("seg_a", 100, 102, 0, 1),
+                ("seg_b", 102, 104, 1, 2),
+                ("seg_c", 104, 105, 2, 3),
+            ]
+        );
     }
 }
