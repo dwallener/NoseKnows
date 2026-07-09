@@ -45,6 +45,12 @@
   - Current display-rubric checkpoint: 92/100 overall, 50/50 no-scent silent, 42/50 single-note pass.
   - Segregated self-test fixtures live under `data/selftest/`: `no_scent`, `single_note`, `two_note`, and `three_note`.
   - Current segregated exhaustive-probe checkpoint: no-scent 50/50, single 9/14, two 10/91, three 53/364.
+  - Self-test detail now reports all four cases:
+    - no-scent false-positive labels.
+    - single-note visible/weak/missing expected-label coverage and dominant-label confusion.
+    - two-note and three-note visible/weak/missing expected-label coverage, coverage histograms, wrong dominants, and dominant-over-missing-label replacement patterns.
+  - Current blend diagnostic read: two-note has 69/182 expected slots visible, 4 weak, 109 missing; three-note has 283/1092 visible, 11 weak, 798 missing.
+  - Current dominant blend failure attractor is `Dry Woods`, especially replacing `Amber`, `Fruity`, `Green`, `Soft Amber`, `Woody Amber`, and `Water`.
   - Current checkpoint: no-scent passes, but several single-note classes are still silent or confused in the accordion LIF readout.
   - Current largest dominant-label confusions: Fruity -> Woods, Green -> Floral, Water -> Floral, and several Amber/Woods-family labels -> Silent.
   - Current failure split after targeted tuning: raw_silent=3, gate_silent=3, wrong_dominant=9, spillover=6, no_scent_fp=0.

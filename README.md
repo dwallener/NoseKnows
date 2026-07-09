@@ -487,6 +487,51 @@ display-two      on data/selftest/two_note:    10/91 pass
 display-three    on data/selftest/three_note:  53/364 pass
 ```
 
+The self-test prints detail for all four probe types:
+
+```text
+No-scent detail:
+  silent count
+  false-positive sample count
+  false-positive labels, if any
+
+Single-note detail:
+  expected-label coverage: visible / weak / missing
+  visible-label coverage histogram
+  wrong/silent dominant labels
+  single-note dominant-label confusion table
+
+Two-note / three-note detail:
+  expected-label coverage by label
+  visible-label coverage histogram
+  wrong/silent dominant labels
+  common missing-or-weak expected labels grouped by the dominant replacement
+```
+
+For the display rubrics, `visible` means the expected label is in the gated top 3 with at least `--min-correct` decisions. `weak` means the expected label has gated evidence but does not clear the visible threshold. `missing` means the expected label has no gated evidence.
+
+Current detailed exhaustive-probe snapshot:
+
+```text
+no-scent:
+  silent=50 false_positive_samples=0
+
+single-note:
+  expected_slots=14 visible=11 weak=0 missing=3
+
+two-note:
+  expected_slots=182 visible=69 weak=4 missing=109
+  visible-label coverage histogram: 0=32 1=49 2=10 3=0
+  most common wrong dominant: Dry Woods=35
+  most common replacement pattern: Dry Woods over Amber/Fruity/Green/Soft Amber/Woody Amber/Water
+
+three-note:
+  expected_slots=1092 visible=283 weak=11 missing=798
+  visible-label coverage histogram: 0=143 1=163 2=54 3=4
+  most common wrong dominant: Dry Woods=120
+  most common replacement pattern: Dry Woods over Amber/Floral/Fruity/Woody Amber/Green/Soft Amber/Water
+```
+
 This is the more relevant robustness benchmark. The strict rubric remains useful as a diagnostic because it reveals wrong-dominant and spillover patterns, but it should not be treated as the product acceptance criterion.
 
 As of this checkpoint, no-scent passes cleanly, while the stricter all-single-note check still exposes known class confusions and silent labels in the current accordion LIF readout. Treat this as a regression/self-test harness, not proof that the SNN classifier is finished.

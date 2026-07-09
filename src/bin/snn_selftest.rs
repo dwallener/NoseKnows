@@ -166,6 +166,44 @@ struct Confusion {
     total: [usize; SNN_OUTPUTS],
 }
 
+#[derive(Default)]
+struct DetailedDiagnostics {
+    no_scent: NoScentDiagnostics,
+    single: NoteDiagnostics,
+    two: NoteDiagnostics,
+    three: NoteDiagnostics,
+}
+
+#[derive(Default)]
+struct NoScentDiagnostics {
+    checked: usize,
+    silent: usize,
+    false_positive_samples: usize,
+    false_positive_counts: [usize; SNN_OUTPUTS],
+}
+
+#[derive(Default)]
+struct NoteDiagnostics {
+    checked: usize,
+    passed: usize,
+    expected_total: usize,
+    visible_total: usize,
+    weak_total: usize,
+    missing_total: usize,
+    coverage_hist: [usize; 4],
+    per_label: [LabelDiagnostics; SNN_OUTPUTS],
+    wrong_dominants: [usize; CONFUSION_BUCKETS],
+    replacements: [[usize; SNN_OUTPUTS]; CONFUSION_BUCKETS],
+}
+
+#[derive(Clone, Copy, Default)]
+struct LabelDiagnostics {
+    expected: usize,
+    visible: usize,
+    weak: usize,
+    missing: usize,
+}
+
 enum Expected {
     NoScent,
     Notes(ExpectedLabels),
@@ -208,6 +246,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut summary = Summary::default();
     let mut breakdown = FailureBreakdown::default();
     let mut confusion = Confusion::default();
+    let mut diagnostics = DetailedDiagnostics::default();
     let mut failures = Vec::new();
 
     for path in paths {
@@ -242,6 +281,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let raw_counts = output_counts(&output_spikes);
         let gated_counts = decision_counts(&gated);
         let verdict = evaluate_sample(&expected, &raw_counts, &gated_counts, &config);
+        diagnostics.record(&expected, &gated_counts, verdict.passed, &config);
         if let Expected::Notes(labels) = expected {
             if labels.count == 1 {
                 let label = labels.labels[0];
@@ -310,6 +350,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         summary.three_checked
     );
     print_failure_breakdown(&breakdown);
+    print_detailed_diagnostics(&diagnostics);
     print_confusion(&confusion);
 
     if !failures.is_empty() {
@@ -906,6 +947,127 @@ impl ExpectedLabels {
     }
 }
 
+impl DetailedDiagnostics {
+    fn record(
+        &mut self,
+        expected: &Expected,
+        gated_counts: &[usize; SNN_OUTPUTS],
+        passed: bool,
+        config: &Config,
+    ) {
+        match expected {
+            Expected::NoScent => self.no_scent.record(gated_counts),
+            Expected::Notes(labels) => match labels.count {
+                1 => self.single.record(*labels, gated_counts, passed, config),
+                2 => self.two.record(*labels, gated_counts, passed, config),
+                3 => self.three.record(*labels, gated_counts, passed, config),
+                _ => {}
+            },
+            Expected::Skip => {}
+        }
+    }
+}
+
+impl NoScentDiagnostics {
+    fn record(&mut self, gated_counts: &[usize; SNN_OUTPUTS]) {
+        self.checked += 1;
+        if gated_counts.iter().all(|count| *count == 0) {
+            self.silent += 1;
+            return;
+        }
+        self.false_positive_samples += 1;
+        for (label, count) in gated_counts.iter().copied().enumerate() {
+            if count > 0 {
+                self.false_positive_counts[label] += 1;
+            }
+        }
+    }
+}
+
+impl NoteDiagnostics {
+    fn record(
+        &mut self,
+        labels: ExpectedLabels,
+        gated_counts: &[usize; SNN_OUTPUTS],
+        passed: bool,
+        config: &Config,
+    ) {
+        self.checked += 1;
+        if passed {
+            self.passed += 1;
+        }
+
+        let ranked = ranked_labels(gated_counts);
+        let top = ranked.first().map(|(label, _)| *label);
+        let mut visible_in_sample = 0;
+        let mut missing_expected = Vec::new();
+
+        for label in labels.labels.iter().copied().take(labels.count) {
+            self.expected_total += 1;
+            self.per_label[label].expected += 1;
+            let status = expected_label_status(label, gated_counts, &ranked, config);
+            match status {
+                LabelStatus::Visible => {
+                    visible_in_sample += 1;
+                    self.visible_total += 1;
+                    self.per_label[label].visible += 1;
+                }
+                LabelStatus::Weak => {
+                    self.weak_total += 1;
+                    self.per_label[label].weak += 1;
+                    missing_expected.push(label);
+                }
+                LabelStatus::Missing => {
+                    self.missing_total += 1;
+                    self.per_label[label].missing += 1;
+                    missing_expected.push(label);
+                }
+            }
+        }
+        self.coverage_hist[visible_in_sample.min(3)] += 1;
+
+        if let Some(top) = top {
+            if !labels.contains(top) {
+                self.wrong_dominants[top] += 1;
+                for expected in missing_expected {
+                    self.replacements[top][expected] += 1;
+                }
+            }
+        } else {
+            self.wrong_dominants[SILENT_BUCKET] += 1;
+            for expected in missing_expected {
+                self.replacements[SILENT_BUCKET][expected] += 1;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LabelStatus {
+    Visible,
+    Weak,
+    Missing,
+}
+
+fn expected_label_status(
+    label: usize,
+    gated_counts: &[usize; SNN_OUTPUTS],
+    ranked: &[(usize, usize)],
+    config: &Config,
+) -> LabelStatus {
+    if ranked
+        .iter()
+        .take(3)
+        .any(|(candidate, count)| *candidate == label && *count >= config.min_correct_decisions)
+    {
+        LabelStatus::Visible
+    } else if gated_counts[label] > 0 {
+        LabelStatus::Weak
+    } else {
+        LabelStatus::Missing
+    }
+}
+
 impl FailureBreakdown {
     fn record(&mut self, kind: FailureKind) {
         match kind {
@@ -936,6 +1098,134 @@ fn print_failure_breakdown(breakdown: &FailureBreakdown) {
         breakdown.spillover,
         breakdown.no_scent_false_positive
     );
+}
+
+fn print_detailed_diagnostics(diagnostics: &DetailedDiagnostics) {
+    print_no_scent_diagnostics(&diagnostics.no_scent);
+    print_note_diagnostics("Single-note detail", &diagnostics.single);
+    print_note_diagnostics("Two-note detail", &diagnostics.two);
+    print_note_diagnostics("Three-note detail", &diagnostics.three);
+}
+
+fn print_no_scent_diagnostics(diagnostics: &NoScentDiagnostics) {
+    if diagnostics.checked == 0 {
+        return;
+    }
+    println!();
+    println!("No-scent detail:");
+    println!(
+        "  silent={} false_positive_samples={} checked={}",
+        diagnostics.silent, diagnostics.false_positive_samples, diagnostics.checked
+    );
+
+    let mut false_positives = diagnostics
+        .false_positive_counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    false_positives.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| LABELS[a.0].cmp(LABELS[b.0])));
+    if !false_positives.is_empty() {
+        println!("  false-positive labels:");
+        for (label, count) in false_positives.into_iter().take(10) {
+            println!("    {:<16} {}", LABELS[label], count);
+        }
+    }
+}
+
+fn print_note_diagnostics(title: &str, diagnostics: &NoteDiagnostics) {
+    if diagnostics.checked == 0 {
+        return;
+    }
+
+    println!();
+    println!("{title}:");
+    println!(
+        "  samples={} passed={} expected_slots={} visible={} weak={} missing={}",
+        diagnostics.checked,
+        diagnostics.passed,
+        diagnostics.expected_total,
+        diagnostics.visible_total,
+        diagnostics.weak_total,
+        diagnostics.missing_total
+    );
+    println!(
+        "  visible-label coverage histogram: 0={} 1={} 2={} 3={}",
+        diagnostics.coverage_hist[0],
+        diagnostics.coverage_hist[1],
+        diagnostics.coverage_hist[2],
+        diagnostics.coverage_hist[3]
+    );
+
+    println!("  expected-label coverage:");
+    println!(
+        "    {:<16} {:>7} {:>7} {:>7} {:>7}",
+        "label", "expect", "visible", "weak", "missing"
+    );
+    for label in 0..SNN_OUTPUTS {
+        let row = diagnostics.per_label[label];
+        if row.expected == 0 {
+            continue;
+        }
+        println!(
+            "    {:<16} {:>7} {:>7} {:>7} {:>7}",
+            LABELS[label], row.expected, row.visible, row.weak, row.missing
+        );
+    }
+
+    print_wrong_dominants(diagnostics);
+    print_replacements(diagnostics);
+}
+
+fn print_wrong_dominants(diagnostics: &NoteDiagnostics) {
+    let mut wrong = diagnostics
+        .wrong_dominants
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    wrong.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| prediction_name(a.0).cmp(prediction_name(b.0)))
+    });
+    if wrong.is_empty() {
+        return;
+    }
+    println!("  wrong/silent dominant labels:");
+    for (label, count) in wrong.into_iter().take(10) {
+        println!("    {:<16} {}", prediction_name(label), count);
+    }
+}
+
+fn print_replacements(diagnostics: &NoteDiagnostics) {
+    let mut replacements = Vec::new();
+    for dominant in 0..CONFUSION_BUCKETS {
+        for expected in 0..SNN_OUTPUTS {
+            let count = diagnostics.replacements[dominant][expected];
+            if count > 0 {
+                replacements.push((dominant, expected, count));
+            }
+        }
+    }
+    replacements.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then_with(|| prediction_name(a.0).cmp(prediction_name(b.0)))
+            .then_with(|| LABELS[a.1].cmp(LABELS[b.1]))
+    });
+    if replacements.is_empty() {
+        return;
+    }
+    println!("  common missing/weak expected labels by dominant:");
+    for (dominant, expected, count) in replacements.into_iter().take(12) {
+        println!(
+            "    {:<16} over {:<16} {}",
+            prediction_name(dominant),
+            LABELS[expected],
+            count
+        );
+    }
 }
 
 impl Confusion {
