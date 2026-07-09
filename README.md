@@ -245,7 +245,7 @@ For continuous-training experiments, build a long labeled stream from the same c
 scripts/build_snn_stream_dataset.sh
 ```
 
-By default this writes `data/streams/snn_comprehensive_stream.csv`, starts with three no-scent captures, then iterates over shuffled fragrance captures followed by a random `0..3` whole no-scent captures. The stitcher derives both scent and no-scent rows from generated capture CSVs, so gaps found in stream training can still be fixed at the common synthetic source.
+By default this writes `data/streams/snn_comprehensive_stream.csv`, balances scent segments so the stream has the same number of single-note, two-note, and three-note captures, starts with three no-scent captures, then iterates over shuffled fragrance captures followed by a random `0..3` whole no-scent captures. The stitcher derives both scent and no-scent rows from generated capture CSVs, so gaps found in stream training can still be fixed at the common synthetic source.
 
 Train the separate stream readout model with:
 
@@ -260,7 +260,7 @@ scripts/build_snn_stream_dataset.sh data/training/snn_comprehensive data/streams
 cargo run --bin snn_stream_train -- --stream data/streams/smoke_stream.csv --out data/models/snn_stream_smoke.nsm --epochs 3 --validation 0.2 --window 30 --stride 1
 ```
 
-The initial smoke run produced a 14,400-row stream with exactly 50% no-scent rows and reached roughly 97% no-scent silence after three epochs. Treat this as a stream-training scaffold, not the final live classifier.
+In the smoke command, the final `8` is the per-bucket scent limit: `8` single-note, `8` two-note, and `8` three-note scent segments. The current smoke stream has 24 scent segments and 65,700 rows. Treat this as a stream-training scaffold, not the final live classifier.
 
 Render a compact rolling timeline preview for the stream model with:
 

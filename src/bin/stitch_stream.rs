@@ -55,7 +55,7 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args()?;
     let captures = load_captures(&config.input_dir)?;
-    let mut scent = captures
+    let scent = captures
         .iter()
         .filter(|capture| !is_no_scent(&capture.labels))
         .cloned()
@@ -74,11 +74,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut rng = Lcg::new(config.seed);
-    shuffle(&mut scent, &mut rng);
     shuffle(&mut no_scent, &mut rng);
-    if let Some(limit) = config.limit {
-        scent.truncate(limit.min(scent.len()));
-    }
+    let (mut scent, balance) = balanced_scent_captures(scent, config.limit, &mut rng)?;
+    shuffle(&mut scent, &mut rng);
 
     let mut gap_source = GapSource::new(no_scent);
 
@@ -157,8 +155,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.output_path.display()
     );
     println!(
-        "Stream scent_segments={} total_segments={} rows={} scent_rows={} no_scent_rows={} no_scent_ratio={:.3} initial_no_scent={} max_gap_no_scent={}",
+        "Stream scent_segments={} single={} two={} three={} target_per_bucket={} total_segments={} rows={} scent_rows={} no_scent_rows={} no_scent_ratio={:.3} initial_no_scent={} max_gap_no_scent={}",
         scent.len(),
+        balance.single,
+        balance.two,
+        balance.three,
+        balance.target_per_bucket,
         stream_segment,
         total,
         scent_rows_written,
@@ -168,6 +170,58 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         config.max_gap_no_scent_captures
     );
     Ok(())
+}
+
+struct BalanceSummary {
+    single: usize,
+    two: usize,
+    three: usize,
+    target_per_bucket: usize,
+}
+
+fn balanced_scent_captures(
+    captures: Vec<Capture>,
+    limit_per_bucket: Option<usize>,
+    rng: &mut Lcg,
+) -> Result<(Vec<Capture>, BalanceSummary), Box<dyn std::error::Error>> {
+    let mut buckets = [Vec::new(), Vec::new(), Vec::new()];
+    for capture in captures {
+        let count = active_label_count(&capture.labels);
+        if !(1..=3).contains(&count) {
+            return Err(format!("{} has unsupported active label count {count}", capture.id).into());
+        }
+        buckets[count - 1].push(capture);
+    }
+
+    for (index, bucket) in buckets.iter().enumerate() {
+        if bucket.is_empty() {
+            return Err(format!("missing {}-note captures for stream balancing", index + 1).into());
+        }
+    }
+    for bucket in &mut buckets {
+        shuffle(bucket, rng);
+    }
+
+    let natural_target = buckets.iter().map(Vec::len).max().unwrap_or(0);
+    let target_per_bucket = limit_per_bucket.unwrap_or(natural_target).max(1);
+    let mut balanced = Vec::with_capacity(target_per_bucket * buckets.len());
+    let mut counts = [0_usize; 3];
+    for (bucket_index, bucket) in buckets.iter().enumerate() {
+        for index in 0..target_per_bucket {
+            balanced.push(bucket[index % bucket.len()].clone());
+            counts[bucket_index] += 1;
+        }
+    }
+
+    Ok((
+        balanced,
+        BalanceSummary {
+            single: counts[0],
+            two: counts[1],
+            three: counts[2],
+            target_per_bucket,
+        },
+    ))
 }
 
 struct GapSource {
@@ -302,7 +356,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin stitch_stream -- [--input data/training/snn_comprehensive] [--out data/streams/snn_comprehensive_stream.csv] [--initial-no-scent-captures 3] [--max-gap-no-scent-captures 3] [--limit N]"
+                    "Usage: cargo run --bin stitch_stream -- [--input data/training/snn_comprehensive] [--out data/streams/snn_comprehensive_stream.csv] [--initial-no-scent-captures 3] [--max-gap-no-scent-captures 3] [--limit per-note-bucket]"
                 );
                 std::process::exit(0);
             }
@@ -422,6 +476,13 @@ fn is_no_scent(labels: &[String; 3]) -> bool {
     })
 }
 
+fn active_label_count(labels: &[String; 3]) -> usize {
+    labels
+        .iter()
+        .filter(|label| LABELS.iter().any(|known| known.eq_ignore_ascii_case(label)))
+        .count()
+}
+
 fn shuffle<T>(items: &mut [T], rng: &mut Lcg) {
     for index in (1..items.len()).rev() {
         let other = rng.range_usize(0, index + 1);
@@ -484,6 +545,15 @@ impl Lcg {
 mod tests {
     use super::*;
 
+    fn capture(id: &str, labels: [&str; 3]) -> Capture {
+        Capture {
+            id: id.to_string(),
+            name: id.to_string(),
+            labels: labels.map(str::to_string),
+            rows: vec![[0; CHANNELS]],
+        }
+    }
+
     #[test]
     fn no_scent_requires_no_known_labels() {
         assert!(is_no_scent(&[
@@ -496,6 +566,43 @@ mod tests {
             NO_SCENT_LABEL.to_string(),
             NO_SCENT_LABEL.to_string(),
         ]));
+    }
+
+    #[test]
+    fn active_label_count_ignores_no_scent_slots() {
+        assert_eq!(
+            active_label_count(&[
+                "Citrus".to_string(),
+                NO_SCENT_LABEL.to_string(),
+                NO_SCENT_LABEL.to_string(),
+            ]),
+            1
+        );
+        assert_eq!(
+            active_label_count(&["Citrus".to_string(), "Water".to_string(), "Green".to_string()]),
+            3
+        );
+    }
+
+    #[test]
+    fn balancing_repeats_smaller_buckets_to_largest_bucket() {
+        let captures = vec![
+            capture("single_0", ["Citrus", NO_SCENT_LABEL, NO_SCENT_LABEL]),
+            capture("two_0", ["Citrus", "Water", NO_SCENT_LABEL]),
+            capture("two_1", ["Citrus", "Green", NO_SCENT_LABEL]),
+            capture("three_0", ["Citrus", "Water", "Green"]),
+            capture("three_1", ["Citrus", "Water", "Fruity"]),
+            capture("three_2", ["Citrus", "Water", "Floral"]),
+        ];
+        let mut rng = Lcg::new(123);
+        let (balanced, summary) =
+            balanced_scent_captures(captures, None, &mut rng).expect("balanced");
+
+        assert_eq!(summary.single, 3);
+        assert_eq!(summary.two, 3);
+        assert_eq!(summary.three, 3);
+        assert_eq!(summary.target_per_bucket, 3);
+        assert_eq!(balanced.len(), 9);
     }
 
     #[test]
