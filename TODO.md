@@ -34,6 +34,12 @@
 - Add null/clean-air captures later and require the model to support a no-output or low-confidence state instead of always forcing a fragrance label.
 - Compare simple rate coding, threshold-crossing events, and delta-based event coding.
 - Explore whether a small hidden LIF layer, per-neuron decay, or richer temporal readout improves the current direct 16-input-to-14-output LIF bank.
+- Introduce a differentiation layer between spike generation and fragrance-label generation:
+  - Input: 16-channel rate/latency spike bundle.
+  - Layer 1: clockless, unsupervised neuromorphic pattern layer with lateral inhibition.
+  - Size target: 32 or 64 emergent-pattern neurons.
+  - Role: generate spike trains/signals from patterns that are actually differentiable between sensor clusters.
+  - Layer 2: sparse fixed-point matrix or lookup mapping emergent-pattern activity to the 14 fragrance-wheel labels.
 - Re-evaluate the SNN classifier once real repeated captures exist.
 - Evaluate SNN fit for ESP32-class inference: memory footprint, integer arithmetic, event sparsity, latency, and implementation complexity.
 - Treat SNN work as exploratory until it beats or meaningfully simplifies the tiny transformer/baseline path.
