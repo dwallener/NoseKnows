@@ -15,6 +15,11 @@ const DEFAULT_STREAM: &str = "data/streams/smoke_stream.csv";
 const DEFAULT_MODEL: &str = "data/models/snn_stream_smoke.nsm";
 const DEFAULT_OUT: &str = "data/streams/stream_preview.svg";
 const DEFAULT_ROWS: usize = 3000;
+const GRID: &str = "#d9e0e0";
+const TEXT: &str = "#263235";
+const MUTED: &str = "#657073";
+const TEAL: &str = "#208f8a";
+const BLUE: &str = "#2878a8";
 
 const CHANNEL_NAMES: [&str; CHANNELS] = [
     "adc0 MQ-2",
@@ -237,17 +242,18 @@ fn render_svg(
     config: &Config,
     start_row: usize,
 ) -> String {
-    let left = 150.0_f32;
-    let right = 24.0_f32;
-    let top = 42.0_f32;
+    let left = 184.0_f32;
+    let right = 28.0_f32;
+    let top = 86.0_f32;
     let width = left + config.columns as f32 + right;
-    let row_gap = 18.0_f32;
-    let section_gap = 34.0_f32;
+    let row_gap = 17.0_f32;
+    let feature_gap = 10.0_f32;
+    let section_gap = 48.0_f32;
     let adc_height = CHANNELS as f32 * row_gap;
-    let feature_height = FEATURES as f32 * 11.0;
+    let feature_height = FEATURES as f32 * feature_gap;
     let label_height = OUTPUTS as f32 * row_gap;
     let total_height = top
-        + 22.0
+        + 30.0
         + adc_height
         + section_gap
         + feature_height
@@ -264,22 +270,24 @@ fn render_svg(
     );
     let _ = writeln!(
         svg,
-        r##"<rect width="100%" height="100%" fill="#f6f8f8"/><style>text{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;fill:#273033}} .small{{font-size:11px}} .title{{font:700 18px system-ui,-apple-system,sans-serif}}</style>"##
+        r##"<rect width="100%" height="100%" fill="#f6f8f8"/><style>text{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;fill:{TEXT}}} .small{{font-size:11px}} .tiny{{font-size:9px;fill:{MUTED}}} .title{{font:700 18px system-ui,-apple-system,sans-serif}} .section{{font:700 15px system-ui,-apple-system,sans-serif;fill:{TEXT}}}</style>"##
     );
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="26" class="title">stream readout timeline: rows {}..{} window={}</text>"#,
+        r#"<text x="18" y="30" class="title">stream timeline</text><text x="18" y="52" class="small">rows {}..{}  window={}  columns={}  gate&gt;{:.2}</text>"#,
         start_row,
         start_row + rows.len(),
-        model.window
+        model.window,
+        config.columns,
+        config.gate_threshold
     );
 
     let mut y = top;
-    render_truth_strip(&mut svg, rows, left, y, config.columns as f32);
-    y += 22.0;
+    render_truth_strip(&mut svg, rows, left, y, config.columns as f32, start_row);
+    y += 30.0;
     render_adc(&mut svg, rows, left, y, config.columns as f32);
     y += adc_height + section_gap;
-    render_features(&mut svg, frames, left, y, config.columns as f32);
+    render_features(&mut svg, frames, left, y, config.columns as f32, feature_gap);
     y += feature_height + section_gap;
     render_label_heatmap(&mut svg, frames, left, y, config.columns as f32);
     y += label_height + section_gap;
@@ -288,14 +296,23 @@ fn render_svg(
     svg
 }
 
-fn render_truth_strip(svg: &mut String, rows: &[StreamRow], left: f32, y: f32, panel_width: f32) {
+fn render_truth_strip(
+    svg: &mut String,
+    rows: &[StreamRow],
+    left: f32,
+    y: f32,
+    panel_width: f32,
+    start_row: usize,
+) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{:.1}" class="small">truth</text>"#,
-        y + 10.0
+        r#"<text x="18" y="{:.1}" class="section">truth</text><text x="18" y="{:.1}" class="tiny">gray=no scent, color=active labels</text>"#,
+        y - 12.0,
+        y + 2.0
     );
     let columns = panel_width as usize;
     let rows_per_col = rows.len() as f32 / columns as f32;
+    rounded_panel(svg, left, y - 2.0, panel_width, 18.0);
     for col in 0..columns {
         let start = (col as f32 * rows_per_col).floor() as usize;
         let end = (((col + 1) as f32 * rows_per_col).ceil() as usize).min(rows.len());
@@ -328,18 +345,30 @@ fn render_truth_strip(svg: &mut String, rows: &[StreamRow], left: f32, y: f32, p
             }
         }
     }
+    for tick in 0..=4 {
+        let x = left + panel_width * tick as f32 / 4.0;
+        let row = start_row + (rows.len() * tick / 4);
+        line(svg, x, y + 17.0, x, y + 23.0, GRID, 1.0);
+        let _ = writeln!(
+            svg,
+            r#"<text x="{:.1}" y="{:.1}" class="tiny" text-anchor="middle">{}</text>"#,
+            x,
+            y + 34.0,
+            row
+        );
+    }
 }
 
 fn render_adc(svg: &mut String, rows: &[StreamRow], left: f32, y: f32, panel_width: f32) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{:.1}" class="title">ADC traces</text>"#,
-        y - 8.0
+        r#"<text x="18" y="{:.1}" class="section">ADC traces</text>"#,
+        y - 16.0
     );
     for channel in 0..CHANNELS {
         let row_y = y + channel as f32 * 18.0;
         label(svg, CHANNEL_NAMES[channel], row_y + 4.0);
-        line(svg, left, row_y, left + panel_width, row_y, "#d8dede", 1.0);
+        line(svg, left, row_y, left + panel_width, row_y, GRID, 1.0);
         let mut points = String::new();
         let columns = panel_width as usize;
         let rows_per_col = rows.len() as f32 / columns as f32;
@@ -360,27 +389,38 @@ fn render_adc(svg: &mut String, rows: &[StreamRow], left: f32, y: f32, panel_wid
         }
         let _ = writeln!(
             svg,
-            r##"<polyline points="{}" fill="none" stroke="#2878a8" stroke-width="1.2" opacity="0.85"/>"##,
+            r##"<polyline points="{}" fill="none" stroke="{BLUE}" stroke-width="1.15" opacity="0.82"/>"##,
             points.trim()
         );
     }
 }
 
-fn render_features(svg: &mut String, frames: &[Frame], left: f32, y: f32, panel_width: f32) {
+fn render_features(
+    svg: &mut String,
+    frames: &[Frame],
+    left: f32,
+    y: f32,
+    panel_width: f32,
+    feature_gap: f32,
+) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{:.1}" class="title">rolling input features</text>"#,
-        y - 8.0
+        r#"<text x="18" y="{:.1}" class="section">rolling input features</text><text x="18" y="{:.1}" class="tiny">rate lanes first, delta lanes second</text>"#,
+        y - 18.0,
+        y - 5.0
     );
     for feature in 0..FEATURES {
-        let row_y = y + feature as f32 * 11.0;
+        let row_y = y + feature as f32 * feature_gap;
         let name = if feature < ACTIVE_SENSORS {
-            format!("r{feature}")
+            format!("rate adc{feature}")
         } else {
-            format!("d{}", feature - ACTIVE_SENSORS)
+            format!("delta adc{}", feature - ACTIVE_SENSORS)
         };
         label(svg, &name, row_y + 4.0);
-        heat_row(svg, frames.len(), panel_width as usize, left, row_y, 7.0, |start, end| {
+        if feature == ACTIVE_SENSORS {
+            line(svg, left, row_y - 4.0, left + panel_width, row_y - 4.0, "#c8d1d1", 1.0);
+        }
+        heat_row(svg, frames.len(), panel_width as usize, left, row_y, 6.0, |start, end| {
             let mut sum = 0.0;
             let mut count = 0.0;
             for frame in &frames[start..end] {
@@ -399,8 +439,9 @@ fn render_features(svg: &mut String, frames: &[Frame], left: f32, y: f32, panel_
 fn render_label_heatmap(svg: &mut String, frames: &[Frame], left: f32, y: f32, panel_width: f32) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{:.1}" class="title">label evidence</text>"#,
-        y - 8.0
+        r#"<text x="18" y="{:.1}" class="section">label evidence</text><text x="18" y="{:.1}" class="tiny">positive model evidence, normalized in-window</text>"#,
+        y - 18.0,
+        y - 5.0
     );
     let max_abs = frames
         .iter()
@@ -409,7 +450,7 @@ fn render_label_heatmap(svg: &mut String, frames: &[Frame], left: f32, y: f32, p
     for label_index in 0..OUTPUTS {
         let row_y = y + label_index as f32 * 18.0;
         label(svg, LABELS[label_index], row_y + 4.0);
-        line(svg, left, row_y, left + panel_width, row_y, "#d8dede", 1.0);
+        line(svg, left, row_y, left + panel_width, row_y, GRID, 1.0);
         heat_row(svg, frames.len(), panel_width as usize, left, row_y - 5.0, 10.0, |start, end| {
             let mut sum = 0.0;
             let mut count = 0.0;
@@ -436,15 +477,16 @@ fn render_gated(
 ) {
     let _ = writeln!(
         svg,
-        r#"<text x="18" y="{:.1}" class="title">gated readout</text>"#,
-        y - 8.0
+        r#"<text x="18" y="{:.1}" class="section">gated readout</text><text x="18" y="{:.1}" class="tiny">top 3 labels when score clears threshold</text>"#,
+        y - 18.0,
+        y - 5.0
     );
     let columns = panel_width as usize;
     let frames_per_col = frames.len() as f32 / columns as f32;
     for label_index in 0..OUTPUTS {
         let row_y = y + label_index as f32 * 18.0;
         label(svg, LABELS[label_index], row_y + 4.0);
-        line(svg, left, row_y, left + panel_width, row_y, "#d8dede", 1.0);
+        line(svg, left, row_y, left + panel_width, row_y, GRID, 1.0);
     }
     for col in 0..columns {
         let start = (col as f32 * frames_per_col).floor() as usize;
@@ -463,13 +505,13 @@ fn render_gated(
         top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
         for (rank, (label_index, score)) in top.into_iter().take(3).enumerate() {
             if score > gate_threshold {
-                let opacity = [0.95, 0.55, 0.32][rank];
+                let opacity = [0.78, 0.42, 0.24][rank];
                 rect(
                     svg,
                     left + col as f32,
                     y + label_index as f32 * 18.0 - 5.0,
                     1.0,
-                    10.0,
+                    8.0,
                     LABEL_COLORS[label_index],
                     opacity,
                 );
@@ -495,10 +537,17 @@ fn heat_row<F>(
         let end = (((col + 1) as f32 * rows_per_col).ceil() as usize).min(len);
         let value = value_at(start, end).clamp(0.0, 1.0);
         if value > 0.001 {
-            let opacity = 0.12 + value * 0.82;
-            rect(svg, left + col as f32, y, 1.0, height, "#219c98", opacity);
+            let opacity = 0.08 + value * 0.68;
+            rect(svg, left + col as f32, y, 1.0, height, TEAL, opacity);
         }
     }
+}
+
+fn rounded_panel(svg: &mut String, x: f32, y: f32, w: f32, h: f32) {
+    let _ = writeln!(
+        svg,
+        r##"<rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="2" fill="#eef2f2" stroke="{GRID}" stroke-width="1"/>"##
+    );
 }
 
 fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>> {
