@@ -527,6 +527,13 @@ const APP_HTML: &str = r##"<!doctype html>
       overflow: auto;
       max-height: calc(100vh - 108px);
     }
+    .timeline-note {
+      min-width: 980px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
     .lane {
       display: grid;
       grid-template-columns: 132px 1fr;
@@ -658,12 +665,16 @@ const APP_HTML: &str = r##"<!doctype html>
     </aside>
     <section>
       <div class="metric-strip">
+        <div class="metric"><span>View</span><strong id="view-mode">Input</strong></div>
         <div class="metric"><span>Frames</span><strong id="frames">0</strong></div>
         <div class="metric"><span>Segments</span><strong id="segments">0</strong></div>
         <div class="metric"><span>Emitted Rows</span><strong id="emitted">0</strong></div>
         <div class="metric"><span>Silent Rows</span><strong id="silent">0</strong></div>
       </div>
-      <div class="timeline" id="timeline"></div>
+      <div class="timeline">
+        <div class="timeline-note" id="timeline-note"></div>
+        <div id="timeline"></div>
+      </div>
       <div class="log" id="log"></div>
     </section>
   </main>
@@ -769,7 +780,7 @@ async function loadResults() {
   ]);
   const results = parseCsv(resultsText);
   const inputEvents = parseCsv(inputEventsText);
-  renderTimeline(results, inputEvents, results.length);
+  renderTimeline(results, inputEvents, results.length, 'Model');
 }
 
 async function loadInputPreview() {
@@ -779,16 +790,23 @@ async function loadInputPreview() {
   ]);
   const inputRows = parseCsv(inputText);
   const inputEvents = parseCsv(inputEventsText);
-  renderTimeline([], inputEvents, inputRows.length);
+  renderTimeline([], inputEvents, inputRows.length, 'Input');
 }
 
-function renderTimeline(results, inputEvents, frameCount) {
+function renderTimeline(results, inputEvents, frameCount, mode = 'Input') {
   currentFrameCount = Math.max(0, frameCount);
   currentFrame = 0;
+  document.getElementById('view-mode').textContent = mode;
   document.getElementById('frames').textContent = frameCount;
   document.getElementById('segments').textContent = inputEvents.length;
-  document.getElementById('emitted').textContent = results.filter(row => row.silent === 'false').length;
-  document.getElementById('silent').textContent = results.filter(row => row.silent === 'true').length;
+  document.getElementById('emitted').textContent = mode === 'Model' ? results.filter(row => row.silent === 'false').length : '—';
+  document.getElementById('silent').textContent = mode === 'Model' ? results.filter(row => row.silent === 'true').length : '—';
+  document.getElementById('timeline-note').textContent =
+    mode === 'Model'
+      ? 'Model output from the latest headless run.'
+      : mode === 'Unsaved'
+        ? 'State changed. Save and materialize to refresh the input preview.'
+        : 'Input preview only. Click Run Headless to generate model output lanes.';
   const maxRow = Math.max(1, frameCount - 1, ...results.map(row => Number(row.row_index || 0)));
   const labels = ['Truth', ...LABELS];
   const root = document.getElementById('timeline');
@@ -902,13 +920,16 @@ document.getElementById('preset').onchange = applyPreset;
 document.getElementById('add').onclick = () => addSegment();
 document.getElementById('add-gap').onclick = () => addSegment([]);
 document.getElementById('clear').onclick = () => { state.sequence = []; renderSequence(); };
-document.getElementById('save').onclick = saveState;
+document.getElementById('save').onclick = async () => {
+  await saveState();
+  renderTimeline([], [], 0, 'Unsaved');
+};
 document.getElementById('materialize').onclick = () => postAction('/api/materialize', false);
 document.getElementById('run').onclick = () => postAction('/api/run-headless');
 document.getElementById('play').onclick = togglePlay;
 
 initNotes();
-loadState().then(loadResults);
+loadState().then(loadInputPreview);
 </script>
 </body>
 </html>
