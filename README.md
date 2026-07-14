@@ -16,6 +16,14 @@ The repository currently has these pieces:
 - Rust live/headless model runners that can emit a 1024-dimensional `scent_embedding_v1` for downstream NoseLLM-style consumers.
 - An optional Daft/Python dataset-construction and test-ledger layer that materializes plain CSV artifacts for the Rust tools.
 
+Project planning lives in a few focused files:
+
+- `TODO.md`: short active next-action list.
+- `ROADMAP.md`: larger future work streams.
+- `NOTEBOOK.md`: historical findings, checkpoints, and research notes.
+- `PLAN-001.md`: live injection and streaming model boundary.
+- `PLAN-002.md`: manual gain/attenuation bridge validation.
+
 ## Prototype Scope
 
 NoseKnows currently models one controlled fragrance exposure per capture. A capture is expected to contain one named sample, one exposure/recovery timeline, and up to three fragrance-wheel labels. `No Scent` is used as a pseudo-label for clean-air captures and unused label slots.
