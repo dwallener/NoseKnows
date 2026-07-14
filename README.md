@@ -2,6 +2,10 @@
 
 NoseKnows is an early prototype for a 9-channel gas-sensor scent classifier.
 
+![NoseKnows live injector showing Grid8 rolling readout, dominant scent row, and 14 fragrance-label output lanes](assets/readme/noseknows-live-injector-grid8-readout.png)
+
+The current live injector lets us construct synthetic scent/no-scent sequences, materialize sensor-like input frames, run the Rust model headlessly, and inspect truth, dominant readout, and all 14 fragrance-label lanes over time.
+
 The repository currently has these pieces:
 
 - A Rust desktop/web demo that renders the fragrance wheel and lights the top 3 categories.
