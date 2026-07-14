@@ -8,6 +8,14 @@ The headless live path is additive and does not replace the existing stream eval
 scripts/run_headless_live.sh
 ```
 
+The thin local UX layer is also additive:
+
+```sh
+scripts/live_ui.sh
+```
+
+It serves a small browser UI for editing injector state, materializing input frames, running the headless Rust model, and viewing the generated result timeline. The UI does not contain model math; it is a consumer/controller around the same files used by the headless path.
+
 The default run:
 
 1. Reads or creates `data/live/injector_state.json`.
