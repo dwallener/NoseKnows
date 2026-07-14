@@ -27,6 +27,7 @@
 - Compare absolute, normalized, derivative, and combined feature sets on real repeated captures.
 - Evaluate the rolling `8 sensors x 8 one-second lookback` grid representation for no-scent plus single-note detection.
 - Decide how live truth should treat carryover windows after an injection ends: strict no-scent immediately, or a transition/grace interval while the rolling grid still contains scent evidence.
+- Treat `scent_embedding_v1` as an explicit ontology-backed bridge to NoseLLM; later compare it with a learned projection over the same live output/history/features.
 
 ## Continuous Classification Research
 

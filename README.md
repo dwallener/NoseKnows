@@ -9,6 +9,7 @@ The repository currently has these pieces:
 - A Rust host collector that writes labeled serial captures to CSV.
 - A synthetic capture generator for fake end-to-end testing.
 - Rust training/inference scaffolds for the 14-label fragrance wheel: the tiny transformer path, exploratory SNN paths, the peak-pair readout, and stream replay.
+- Rust live/headless model runners that can emit a 1024-dimensional `scent_embedding_v1` for downstream NoseLLM-style consumers.
 - An optional Daft/Python dataset-construction and test-ledger layer that materializes plain CSV artifacts for the Rust tools.
 
 ## Prototype Scope
@@ -319,6 +320,8 @@ NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
 ```
 
 The report step writes grouped CSV summaries plus `data/runs/peak_stream/report/report.md`.
+
+The live headless runners also emit `scent_embedding_v1` rows under `data/live/`. The embedding preserves current label output, recent output history, pairwise label coactivation, and a model-specific feature prefix. See `EMBEDDING.md` for the ontology and dimension map.
 
 For continuous-training experiments, build a long labeled stream from the same capture dataset:
 

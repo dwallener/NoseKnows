@@ -10,9 +10,11 @@ const DEFAULT_INPUT: &str = "data/live/input_frames.csv";
 const DEFAULT_INPUT_EVENTS: &str = "data/live/input_events.csv";
 const DEFAULT_RESULTS: &str = "data/live/model_results.csv";
 const DEFAULT_EVENTS: &str = "data/live/events.csv";
+const DEFAULT_EMBEDDINGS: &str = "data/live/embeddings.csv";
 const DEFAULT_MODEL: &str = "data/models/peak_pair_readout.npm";
 const DEFAULT_GRID_RESULTS: &str = "data/live/grid_model_results.csv";
 const DEFAULT_GRID_EVENTS: &str = "data/live/grid_events.csv";
+const DEFAULT_GRID_EMBEDDINGS: &str = "data/live/grid_embeddings.csv";
 const DEFAULT_GRID_MODEL: &str = "data/models/grid8_readout.ngm";
 const MAX_BODY_BYTES: usize = 128 * 1024;
 
@@ -22,9 +24,11 @@ struct Config {
     input_events_path: PathBuf,
     results_path: PathBuf,
     events_path: PathBuf,
+    embeddings_path: PathBuf,
     model_path: PathBuf,
     grid_results_path: PathBuf,
     grid_events_path: PathBuf,
+    grid_embeddings_path: PathBuf,
     grid_model_path: PathBuf,
 }
 
@@ -59,9 +63,11 @@ fn parse_args() -> Config {
     let mut input_events_path = PathBuf::from(DEFAULT_INPUT_EVENTS);
     let mut results_path = PathBuf::from(DEFAULT_RESULTS);
     let mut events_path = PathBuf::from(DEFAULT_EVENTS);
+    let mut embeddings_path = PathBuf::from(DEFAULT_EMBEDDINGS);
     let mut model_path = PathBuf::from(DEFAULT_MODEL);
     let mut grid_results_path = PathBuf::from(DEFAULT_GRID_RESULTS);
     let mut grid_events_path = PathBuf::from(DEFAULT_GRID_EVENTS);
+    let mut grid_embeddings_path = PathBuf::from(DEFAULT_GRID_EMBEDDINGS);
     let mut grid_model_path = PathBuf::from(DEFAULT_GRID_MODEL);
 
     let args = env::args().skip(1).collect::<Vec<_>>();
@@ -89,6 +95,11 @@ fn parse_args() -> Config {
                 index += 1;
                 events_path = PathBuf::from(args.get(index).expect("--events requires a path"));
             }
+            "--embeddings" => {
+                index += 1;
+                embeddings_path =
+                    PathBuf::from(args.get(index).expect("--embeddings requires a path"));
+            }
             "--model" => {
                 index += 1;
                 model_path = PathBuf::from(args.get(index).expect("--model requires a path"));
@@ -103,6 +114,11 @@ fn parse_args() -> Config {
                 grid_events_path =
                     PathBuf::from(args.get(index).expect("--grid-events requires a path"));
             }
+            "--grid-embeddings" => {
+                index += 1;
+                grid_embeddings_path =
+                    PathBuf::from(args.get(index).expect("--grid-embeddings requires a path"));
+            }
             "--grid-model" => {
                 index += 1;
                 grid_model_path =
@@ -110,7 +126,7 @@ fn parse_args() -> Config {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin live_ui -- [--state data/live/injector_state.json] [--input data/live/input_frames.csv] [--input-events data/live/input_events.csv] [--results data/live/model_results.csv] [--events data/live/events.csv] [--model data/models/peak_pair_readout.npm] [--grid-results data/live/grid_model_results.csv] [--grid-events data/live/grid_events.csv] [--grid-model data/models/grid8_readout.ngm]"
+                    "Usage: cargo run --bin live_ui -- [--state data/live/injector_state.json] [--input data/live/input_frames.csv] [--input-events data/live/input_events.csv] [--results data/live/model_results.csv] [--events data/live/events.csv] [--embeddings data/live/embeddings.csv] [--model data/models/peak_pair_readout.npm] [--grid-results data/live/grid_model_results.csv] [--grid-events data/live/grid_events.csv] [--grid-embeddings data/live/grid_embeddings.csv] [--grid-model data/models/grid8_readout.ngm]"
                 );
                 std::process::exit(0);
             }
@@ -128,9 +144,11 @@ fn parse_args() -> Config {
         input_events_path,
         results_path,
         events_path,
+        embeddings_path,
         model_path,
         grid_results_path,
         grid_events_path,
+        grid_embeddings_path,
         grid_model_path,
     }
 }
@@ -344,6 +362,8 @@ fn run_headless(config: &Config) -> std::process::Output {
             &config.results_path.display().to_string(),
             "--out-events",
             &config.events_path.display().to_string(),
+            "--out-embeddings",
+            &config.embeddings_path.display().to_string(),
             "--run-id",
             "live_ui",
         ])
@@ -366,6 +386,8 @@ fn run_grid8_headless(config: &Config) -> std::process::Output {
             &config.grid_results_path.display().to_string(),
             "--out-events",
             &config.grid_events_path.display().to_string(),
+            "--out-embeddings",
+            &config.grid_embeddings_path.display().to_string(),
             "--run-id",
             "live_ui_grid8",
         ])
@@ -649,6 +671,12 @@ const APP_HTML: &str = r##"<!doctype html>
     .bar.truth { background: var(--amber); }
     .bar.pred { background: var(--teal); }
     .bar.noise { background: var(--rose); }
+    .bar.dominant {
+      top: 3px;
+      height: 14px;
+      opacity: 0.9;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+    }
     .playhead {
       position: absolute;
       top: 1px;
@@ -908,7 +936,7 @@ function renderTimeline(results, inputEvents, frameCount, mode = 'Input') {
         ? 'State changed. Save and materialize to refresh the input preview.'
         : 'Input preview only. Click Run Headless to generate model output lanes.';
   const maxRow = Math.max(1, frameCount - 1, ...results.map(row => Number(row.row_index || 0)));
-  const labels = ['Truth', ...LABELS];
+  const labels = ['Truth', 'Dominant', ...LABELS];
   const root = document.getElementById('timeline');
   root.innerHTML = labels.map(label => `<div class="lane"><div class="label">${label}</div><div class="track" data-lane="${label}"><div class="playhead"></div></div></div>`).join('');
 
@@ -924,6 +952,11 @@ function renderTimeline(results, inputEvents, frameCount, mode = 'Input') {
     bar.style.background = labels[0] && colors[labels[0]] ? colors[labels[0]] : '#cfd7dc';
     bar.title = labels.join(' + ');
     track.appendChild(bar);
+  }
+
+  const dominantTrack = root.querySelector('[data-lane="Dominant"]');
+  for (const segment of dominantSegments(results, maxRow)) {
+    appendDominant(dominantTrack, segment.label, segment.start, segment.end, maxRow);
   }
 
   for (const label of LABELS) {
@@ -945,6 +978,63 @@ function renderTimeline(results, inputEvents, frameCount, mode = 'Input') {
   updatePlayhead();
 }
 
+function dominantSegments(results, maxRow) {
+  if (!results.length) return [];
+  const lookback = 20;
+  const minScore = 16;
+  const minMargin = 4;
+  const minPrimaryHits = 5;
+  const perRow = [];
+
+  for (let index = 0; index < results.length; index++) {
+    const scores = new Map();
+    const primaryHits = new Map();
+    const start = Math.max(0, index - lookback + 1);
+    for (let cursor = start; cursor <= index; cursor++) {
+      const row = results[cursor];
+      if (!row || row.silent !== 'false') continue;
+      addDominantScore(scores, row.pred_1, 3);
+      addDominantScore(scores, row.pred_2, 2);
+      addDominantScore(scores, row.pred_3, 1);
+      if (row.pred_1) {
+        primaryHits.set(row.pred_1, (primaryHits.get(row.pred_1) || 0) + 1);
+      }
+    }
+    const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) {
+      perRow.push(null);
+      continue;
+    }
+    const [label, score] = ranked[0];
+    const runnerUp = ranked[1] ? ranked[1][1] : 0;
+    const hits = primaryHits.get(label) || 0;
+    perRow.push(score >= minScore && score - runnerUp >= minMargin && hits >= minPrimaryHits ? label : null);
+  }
+
+  const segments = [];
+  let active = null;
+  let start = null;
+  for (let index = 0; index < perRow.length; index++) {
+    const label = perRow[index];
+    const rowIndex = Number(results[index].row_index || index);
+    if (label !== active) {
+      if (active) segments.push({label: active, start, end: Number(results[index - 1].row_index || index - 1)});
+      active = label;
+      start = label ? rowIndex : null;
+    }
+  }
+  if (active) {
+    const last = results[results.length - 1];
+    segments.push({label: active, start, end: Number(last.row_index || maxRow)});
+  }
+  return segments;
+}
+
+function addDominantScore(scores, label, value) {
+  if (!label || !colors[label]) return;
+  scores.set(label, (scores.get(label) || 0) + value);
+}
+
 function appendPred(track, label, start, end, maxRow) {
   const bar = document.createElement('div');
   bar.className = 'bar pred';
@@ -952,6 +1042,16 @@ function appendPred(track, label, start, end, maxRow) {
   bar.style.width = `${Math.max(0.4, (end - start + 1) / maxRow * 100)}%`;
   bar.style.background = colors[label] || '#208c86';
   bar.title = label;
+  track.appendChild(bar);
+}
+
+function appendDominant(track, label, start, end, maxRow) {
+  const bar = document.createElement('div');
+  bar.className = 'bar dominant';
+  bar.style.left = `${start / maxRow * 100}%`;
+  bar.style.width = `${Math.max(0.4, (end - start + 1) / maxRow * 100)}%`;
+  bar.style.background = colors[label] || '#208c86';
+  bar.title = `Dominant: ${label}`;
   track.appendChild(bar);
 }
 

@@ -1,4 +1,5 @@
 use noseknows::csv::csv_escape;
+use noseknows::embedding::{format_embedding, EmbeddingRuntime, EMBEDDING_DIMS, EMBEDDING_VERSION};
 use noseknows::peak::{
     expected_names, is_no_scent_target, load_model, median_period_ms, predicted_labels,
     read_live_frames, top_k, PeakRuntime, CHANNELS, LABELS,
@@ -13,12 +14,14 @@ const DEFAULT_INPUT: &str = "data/live/input_frames.csv";
 const DEFAULT_MODEL: &str = "data/models/peak_pair_readout.npm";
 const DEFAULT_RESULTS: &str = "data/live/model_results.csv";
 const DEFAULT_EVENTS: &str = "data/live/events.csv";
+const DEFAULT_EMBEDDINGS: &str = "data/live/embeddings.csv";
 
 struct Config {
     input_path: PathBuf,
     model_path: PathBuf,
     results_path: PathBuf,
     events_path: PathBuf,
+    embeddings_path: PathBuf,
     gate_threshold: f32,
     run_id: String,
 }
@@ -57,9 +60,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     write_results_header(&config)?;
     write_events_header(&config)?;
+    write_embeddings_header(&config)?;
 
     let mut results_file = append_file(&config.results_path)?;
     let mut events_file = append_file(&config.events_path)?;
+    let mut embeddings_file = append_file(&config.embeddings_path)?;
+    let mut embedding_runtime = EmbeddingRuntime::new();
     let mut previous_predicted = Vec::<usize>::new();
     let mut emitted = 0_usize;
     let mut silent_no_scent = 0_usize;
@@ -80,6 +86,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         write_result_row(&mut results_file, &config, &output, &predicted)?;
+        write_embedding_row(
+            &mut embeddings_file,
+            &config,
+            &output,
+            &mut embedding_runtime,
+            &predicted,
+        )?;
 
         if predicted != previous_predicted {
             write_event_row(&mut events_file, &config, &output, &predicted)?;
@@ -93,6 +106,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("Live results: {}", config.results_path.display());
     println!("Live events:  {}", config.events_path.display());
+    println!("Embeddings:   {}", config.embeddings_path.display());
     Ok(())
 }
 
@@ -101,6 +115,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut model_path = PathBuf::from(DEFAULT_MODEL);
     let mut results_path = PathBuf::from(DEFAULT_RESULTS);
     let mut events_path = PathBuf::from(DEFAULT_EVENTS);
+    let mut embeddings_path = PathBuf::from(DEFAULT_EMBEDDINGS);
     let mut gate_threshold = 0.0;
     let mut run_id = default_run_id();
 
@@ -125,6 +140,11 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                 index += 1;
                 events_path = PathBuf::from(args.get(index).ok_or("--out-events requires a path")?);
             }
+            "--out-embeddings" => {
+                index += 1;
+                embeddings_path =
+                    PathBuf::from(args.get(index).ok_or("--out-embeddings requires a path")?);
+            }
             "--gate-threshold" => {
                 index += 1;
                 gate_threshold = args
@@ -138,7 +158,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin live_headless -- [--input data/live/input_frames.csv] [--model data/models/peak_pair_readout.npm] [--out-results data/live/model_results.csv] [--out-events data/live/events.csv] [--gate-threshold 0] [--run-id name]"
+                    "Usage: cargo run --bin live_headless -- [--input data/live/input_frames.csv] [--model data/models/peak_pair_readout.npm] [--out-results data/live/model_results.csv] [--out-events data/live/events.csv] [--out-embeddings data/live/embeddings.csv] [--gate-threshold 0] [--run-id name]"
                 );
                 std::process::exit(0);
             }
@@ -152,6 +172,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         model_path,
         results_path,
         events_path,
+        embeddings_path,
         gate_threshold,
         run_id,
     })
@@ -181,8 +202,43 @@ fn write_events_header(config: &Config) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+fn write_embeddings_header(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = config.embeddings_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = fs::File::create(&config.embeddings_path)?;
+    writeln!(
+        file,
+        "run_id,row_index,elapsed_ms,stream_segment,source_sample_id,embedding_version,dims,vector"
+    )?;
+    Ok(())
+}
+
 fn append_file(path: &PathBuf) -> Result<fs::File, Box<dyn std::error::Error>> {
     Ok(fs::OpenOptions::new().append(true).open(path)?)
+}
+
+fn write_embedding_row(
+    file: &mut fs::File,
+    config: &Config,
+    output: &noseknows::peak::PeakStepOutput,
+    runtime: &mut EmbeddingRuntime,
+    predicted: &[usize],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let vector = runtime.step(&output.logits, predicted, &output.features);
+    writeln!(
+        file,
+        "{},{},{},{},{},{},{},{}",
+        csv_escape(&config.run_id),
+        output.frame.row_index,
+        output.frame.elapsed_ms,
+        csv_escape(&output.frame.segment),
+        csv_escape(&output.frame.source_sample_id),
+        EMBEDDING_VERSION,
+        EMBEDDING_DIMS,
+        csv_escape(&format_embedding(&vector)),
+    )?;
+    Ok(())
 }
 
 fn write_result_row(

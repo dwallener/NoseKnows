@@ -82,6 +82,7 @@ data/live/input_frames.csv
 data/live/input_events.csv
 data/live/model_results.csv
 data/live/events.csv
+data/live/embeddings.csv
 ```
 
 The current input orchestrator is:
@@ -91,6 +92,8 @@ tools/live/inject_chunks.py
 ```
 
 It is deliberately input-only. It does not load model files or compute fragrance predictions.
+
+The Rust live model can also emit `scent_embedding_v1` rows for downstream consumers. The embedding ontology is documented in `EMBEDDING.md`. Daft/Python may later catalog, filter, or report over embedding artifacts, but it should not compute the embedding inside the input orchestration layer.
 
 ## Current Experiment
 

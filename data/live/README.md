@@ -23,14 +23,22 @@ The UI can run either current live readout:
 
 Use the model selector in the header before clicking `Run Headless`. `Train Grid8` retrains the rolling-grid readout from the current no-scent/single-note materialized view.
 
+The timeline includes a `Dominant` row above the 14 fragrance-label rows. This is a lightweight display readout over the model output, not a separate model: it uses a short trailing vote across recent non-silent top-3 predictions and emits one dominant label only when the winner has enough persistence and margin over the runner-up.
+
 The default run:
 
 1. Reads or creates `data/live/injector_state.json`.
 2. Uses the Python/Daft-side input orchestrator to materialize `data/live/input_frames.csv`.
 3. Runs the Rust peak-pair streaming model one frame at a time.
-4. Writes `data/live/model_results.csv` and `data/live/events.csv`.
+4. Writes `data/live/model_results.csv`, `data/live/events.csv`, and `data/live/embeddings.csv`.
 
 The model remains Rust-only. The Python side owns input orchestration and writes plain frame CSVs.
+
+## Scent Embeddings
+
+The headless live runners also emit `scent_embedding_v1`, a 1024-dimensional vector intended for downstream NoseLLM-style consumers. This embedding is not the human-facing display rule; it preserves current output, recent history, pairwise label coactivation, and model-specific feature prefixes.
+
+See `EMBEDDING.md` for the ontology and dimension map.
 
 ## Grid8 Experiment
 
@@ -62,6 +70,8 @@ data/live/input_frames.csv
 data/live/input_events.csv
 data/live/model_results.csv
 data/live/events.csv
+data/live/embeddings.csv
 data/live/grid_model_results.csv
 data/live/grid_events.csv
+data/live/grid_embeddings.csv
 ```
