@@ -1,5 +1,6 @@
 use noseknows::csv::csv_escape;
 use noseknows::embedding::{format_embedding, EmbeddingRuntime, EMBEDDING_DIMS, EMBEDDING_VERSION};
+use noseknows::gain::{format_adc, format_gains, GainOutput, GainStage};
 use noseknows::grid::{load_model, GridRuntime, FEATURES};
 use noseknows::peak::{
     expected_names, is_no_scent_target, predicted_labels, read_live_frames, top_k, CHANNELS,
@@ -16,6 +17,7 @@ const DEFAULT_MODEL: &str = "data/models/grid8_readout.ngm";
 const DEFAULT_RESULTS: &str = "data/live/grid_model_results.csv";
 const DEFAULT_EVENTS: &str = "data/live/grid_events.csv";
 const DEFAULT_EMBEDDINGS: &str = "data/live/grid_embeddings.csv";
+const DEFAULT_GAIN_AUDIT: &str = "data/live/grid_gain_audit.csv";
 
 struct Config {
     input_path: PathBuf,
@@ -23,6 +25,8 @@ struct Config {
     results_path: PathBuf,
     events_path: PathBuf,
     embeddings_path: PathBuf,
+    gain_audit_path: PathBuf,
+    focus_label: Option<String>,
     gate_threshold: f32,
     run_id: String,
 }
@@ -42,13 +46,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("{} has no usable frames", config.input_path.display()).into());
     }
     let mut runtime = GridRuntime::new(model);
+    let gain_stage = GainStage::for_focus(config.focus_label.as_deref())?;
 
     write_results_header(&config)?;
     write_events_header(&config)?;
     write_embeddings_header(&config)?;
+    if gain_stage.has_focus() {
+        write_gain_audit_header(&config)?;
+    }
     let mut results_file = append_file(&config.results_path)?;
     let mut events_file = append_file(&config.events_path)?;
     let mut embeddings_file = append_file(&config.embeddings_path)?;
+    let mut gain_audit_file = if gain_stage.has_focus() {
+        Some(append_file(&config.gain_audit_path)?)
+    } else {
+        None
+    };
     let mut embedding_runtime = EmbeddingRuntime::new();
     let mut previous_predicted = Vec::<usize>::new();
     let mut emitted = 0_usize;
@@ -56,8 +69,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut false_positive = 0_usize;
 
     for frame in frames {
-        let frame_clone = frame.clone();
-        let (grid, logits) = runtime.step(frame.elapsed_ms, &frame.adc);
+        let mut frame_clone = frame.clone();
+        let gain_output = gain_stage.apply(&frame.adc);
+        if let Some(file) = gain_audit_file.as_mut() {
+            write_gain_audit_row(file, &config, &frame, &gain_output)?;
+        }
+        frame_clone.adc = gain_output.adc;
+        let (grid, logits) = runtime.step(frame_clone.elapsed_ms, &frame_clone.adc);
         let predicted = predicted_labels(&logits, config.gate_threshold);
         if !predicted.is_empty() {
             emitted += 1;
@@ -99,6 +117,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("Grid results: {}", config.results_path.display());
     println!("Grid events:  {}", config.events_path.display());
     println!("Grid embeddings: {}", config.embeddings_path.display());
+    if gain_stage.has_focus() {
+        println!("Grid gain audit: {}", config.gain_audit_path.display());
+    }
     Ok(())
 }
 
@@ -108,6 +129,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut results_path = PathBuf::from(DEFAULT_RESULTS);
     let mut events_path = PathBuf::from(DEFAULT_EVENTS);
     let mut embeddings_path = PathBuf::from(DEFAULT_EMBEDDINGS);
+    let mut gain_audit_path = PathBuf::from(DEFAULT_GAIN_AUDIT);
+    let mut focus_label = None;
     let mut gate_threshold = 0.0;
     let mut run_id = default_run_id();
 
@@ -137,6 +160,19 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                 embeddings_path =
                     PathBuf::from(args.get(index).ok_or("--out-embeddings requires a path")?);
             }
+            "--gain-audit" => {
+                index += 1;
+                gain_audit_path =
+                    PathBuf::from(args.get(index).ok_or("--gain-audit requires a path")?);
+            }
+            "--focus-label" => {
+                index += 1;
+                focus_label = Some(
+                    args.get(index)
+                        .ok_or("--focus-label requires a value")?
+                        .clone(),
+                );
+            }
             "--gate-threshold" => {
                 index += 1;
                 gate_threshold = args
@@ -150,7 +186,7 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin grid_live_headless -- [--input data/live/input_frames.csv] [--model data/models/grid8_readout.ngm] [--out-results data/live/grid_model_results.csv] [--out-events data/live/grid_events.csv] [--out-embeddings data/live/grid_embeddings.csv] [--gate-threshold 0] [--run-id name]"
+                    "Usage: cargo run --bin grid_live_headless -- [--input data/live/input_frames.csv] [--model data/models/grid8_readout.ngm] [--out-results data/live/grid_model_results.csv] [--out-events data/live/grid_events.csv] [--out-embeddings data/live/grid_embeddings.csv] [--gain-audit data/live/grid_gain_audit.csv] [--focus-label Floral] [--gate-threshold 0] [--run-id name]"
                 );
                 std::process::exit(0);
             }
@@ -165,6 +201,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         results_path,
         events_path,
         embeddings_path,
+        gain_audit_path,
+        focus_label,
         gate_threshold,
         run_id,
     })
@@ -206,8 +244,44 @@ fn write_embeddings_header(config: &Config) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+fn write_gain_audit_header(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = config.gain_audit_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = fs::File::create(&config.gain_audit_path)?;
+    writeln!(
+        file,
+        "run_id,row_index,elapsed_ms,stream_segment,source_sample_id,focus_label,mask_id,gains,clip_count,raw_adc,masked_adc"
+    )?;
+    Ok(())
+}
+
 fn append_file(path: &PathBuf) -> Result<fs::File, Box<dyn std::error::Error>> {
     Ok(fs::OpenOptions::new().append(true).open(path)?)
+}
+
+fn write_gain_audit_row(
+    file: &mut fs::File,
+    config: &Config,
+    frame: &noseknows::peak::LiveFrame,
+    output: &GainOutput,
+) -> Result<(), Box<dyn std::error::Error>> {
+    writeln!(
+        file,
+        "{},{},{},{},{},{},{},{},{},{},{}",
+        csv_escape(&config.run_id),
+        frame.row_index,
+        frame.elapsed_ms,
+        csv_escape(&frame.segment),
+        csv_escape(&frame.source_sample_id),
+        csv_escape(output.focus_label.as_deref().unwrap_or("")),
+        csv_escape(&output.mask_id),
+        csv_escape(&format_gains(&output.gains)),
+        output.clip_count,
+        csv_escape(&format_adc(&frame.adc)),
+        csv_escape(&format_adc(&output.adc)),
+    )?;
+    Ok(())
 }
 
 fn write_embedding_row(

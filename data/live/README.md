@@ -62,6 +62,30 @@ scripts/run_headless_live_grid8.sh
 
 This path is intended to test sparse rolling readout behavior. Most one-second grid windows should remain silent; labels should appear only once enough recent sensor history has accumulated. Because the rolling grid keeps eight seconds of memory, post-segment carryover is expected unless the evaluator adds an explicit transition/grace policy.
 
+## Manual Focus / Gain Stage
+
+`grid_live_headless` includes an identity-by-default gain stage before the Grid8 runtime:
+
+```text
+input frame -> GainStage -> Grid8 -> readout + scent_embedding_v1
+```
+
+With no focus label, the gain stage is inert and the model receives the same ADC values as before.
+
+For manual gain/attenuation experiments, pass a focus label:
+
+```sh
+scripts/run_headless_live_grid8.sh --focus-label Floral
+```
+
+The first implementation uses hand-authored, attenuate-only masks. Target-relevant sensors stay at `1.0`; non-target sensors are attenuated. When focus is active, the runner writes:
+
+```text
+data/live/grid_gain_audit.csv
+```
+
+The audit file records raw ADC values, masked ADC values, the applied mask, and clip count. Pegged sensors are reported rather than hidden.
+
 Default generated artifacts:
 
 ```text
@@ -74,4 +98,5 @@ data/live/embeddings.csv
 data/live/grid_model_results.csv
 data/live/grid_events.csv
 data/live/grid_embeddings.csv
+data/live/grid_gain_audit.csv
 ```
