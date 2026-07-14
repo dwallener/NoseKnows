@@ -2,25 +2,28 @@
 
 NoseKnows is an early prototype for a 9-channel gas-sensor scent classifier.
 
-The repository currently has five pieces:
+The repository currently has these pieces:
 
 - A Rust desktop/web demo that renders the fragrance wheel and lights the top 3 categories.
 - ESP32-S3 firmware that streams 9 ADC readings over USB serial.
 - A Rust host collector that writes labeled serial captures to CSV.
 - A synthetic capture generator for fake end-to-end testing.
-- A small Rust training/inference scaffold for the 14-label fragrance wheel.
+- Rust training/inference scaffolds for the 14-label fragrance wheel: the tiny transformer path, exploratory SNN paths, the peak-pair readout, and stream replay.
+- An optional Daft/Python dataset-construction and test-ledger layer that materializes plain CSV artifacts for the Rust tools.
 
 ## Prototype Scope
 
-NoseKnows currently models one fragrance exposure per capture. A capture is expected to contain one named sample, one controlled exposure/recovery timeline, and one set of three fragrance-wheel labels.
+NoseKnows currently models one controlled fragrance exposure per capture. A capture is expected to contain one named sample, one exposure/recovery timeline, and up to three fragrance-wheel labels. `No Scent` is used as a pseudo-label for clean-air captures and unused label slots.
 
 The current system does not attempt overlapping scent separation, continuous room-state tracking, source attribution, or real-time classification of multiple simultaneous fragrances. Designer-style synthetic captures may include top, heart, and base note phases, but those phases are treated as the evolution of one fragrance sample, not separate overlapping scents.
 
 ## Training Architecture
 
-All training experiments use the same captured CSV dataset shape under `data/raw/`. The transformer/NoseLLM path and the spiking neural network path should remain separate implementations with separate model artifacts.
+All training experiments use the same collector-shaped CSV rows. Real captures normally live under `data/raw/`; generated training, self-test, materialized-view, and stream artifacts live under `data/training/`, `data/selftest/`, `data/views/`, and `data/streams/`.
 
-The transformer path consumes downsampled analog time series and writes model files under `data/models/`. The SNN path should consume the same CSV captures through the spike encoder, then train/export separate SNN parameters for fixed-point inference. Shared data, separate training code.
+The transformer path consumes downsampled analog time series and writes model files under `data/models/`. The SNN paths consume the same CSV captures through spike or peak encoders, then train/export separate parameters. Shared data, separate training code.
+
+Dataset selection and reporting are now handled by an optional offline Daft/Python layer documented in `README-DAFT.md`. That layer builds manifests, materializes recipe-defined views, and summarizes plain Rust evaluator output. The Rust trainers and evaluators continue to consume ordinary files and do not import Daft.
 
 ## Wheel Demo
 
@@ -291,13 +294,31 @@ This path intentionally narrows the task to no-scent plus single-note captures. 
 
 The first run over `data/training/snn_comprehensive` loaded 156 no-scent/single-note captures and reached 100% validation p@1 with 100% no-scent silence by epoch 25. Treat this as proof that the one-note peak signature is clean in the current synthetic matrix, not as a solution for 2- or 3-note compression/saturation mixtures.
 
+The same training path can be driven from a dataset recipe:
+
+```sh
+NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
+  scripts/train_peak_pair_recipe.sh recipes/peak_single_note.toml data/models/peak_pair_readout_recipe.npm 25 8
+```
+
+The recipe materializes a view under `data/views/` before launching the Rust trainer. `include_label_counts = [0, 1]` selects no-scent plus single-note captures; see `README-DAFT.md` for the recipe boundary and fallback behavior.
+
 To replay that trained peak-pair readout across a stitched synthetic stream, run:
 
 ```sh
 scripts/eval_peak_stream.sh
 ```
 
-This does not read live hardware. It walks the stream CSV one row at a time, keeps the same rolling peak sample-and-hold used by the trainer, quantizes the current held sensor peaks, expands the pairwise accordion features, and reports row-level readout metrics. The report includes both all-frame metrics and settled-frame metrics that skip the first hold window of each stream segment, because a sample-and-hold should intentionally preserve evidence briefly after a segment boundary.
+This does not read live hardware. It walks the stream CSV one row at a time, keeps the same rolling peak sample-and-hold used by the trainer, quantizes the current held sensor peaks, expands the pairwise accordion features, writes a result ledger, and reports row-level readout metrics. The report includes both all-frame metrics and settled-frame metrics that skip the first hold window of each stream segment, because a sample-and-hold should intentionally preserve evidence briefly after a segment boundary.
+
+Summarize the result ledger with:
+
+```sh
+NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
+  scripts/report_peak_stream_run.sh data/runs/peak_stream/results.csv data/manifest/captures.csv data/runs/peak_stream/report
+```
+
+The report step writes grouped CSV summaries plus `data/runs/peak_stream/report/report.md`.
 
 For continuous-training experiments, build a long labeled stream from the same capture dataset:
 
@@ -320,7 +341,7 @@ scripts/build_snn_stream_dataset.sh data/training/snn_comprehensive data/streams
 cargo run --bin snn_stream_train -- --stream data/streams/smoke_stream.csv --out data/models/snn_stream_smoke.nsm --epochs 3 --validation 0.2 --window 30 --stride 1
 ```
 
-In the smoke command, the final `8` is the per-bucket scent limit: `8` single-note, `8` two-note, and `8` three-note scent segments. The current smoke stream has 24 scent segments and 65,700 rows. Treat this as a stream-training scaffold, not the final live classifier.
+In the smoke command, the final `8` is the per-bucket scent limit: `8` single-note, `8` two-note, and `8` three-note scent segments before no-scent gaps are inserted. Treat this as a stream-training scaffold, not the final live classifier.
 
 Render a compact rolling timeline preview for the stream model with:
 
@@ -717,12 +738,15 @@ Older `.nsm` files without bias still load with zero bias. New no-scent-trained 
 Current status:
 
 - Real collector path is working and writes training-shaped CSV files.
-- The current learning problem is constrained to one fragrance exposure per capture.
+- The capture-level learning problem is constrained to one fragrance exposure per capture.
 - Transformer and SNN experiments share datasets but stay separate in code and model artifacts.
 - Synthetic captures let us test the full train/infer loop without claiming real-world scent accuracy.
 - The transformer model consumes one `32 x 9` downsampled time series per CSV and predicts the top 3 of the 14 fragrance-wheel labels.
 - The direct SNN model consumes mixed rate/latency spike events and accumulates activity in a 14-output fixed-point LIF bank.
 - The accordion SNN model expands those events through a 64-neuron differentiation layer before label mapping.
+- The peak-pair path is the cleanest current demo candidate for no-scent plus one-note detection; it uses rolling peak sample-and-hold, 8-bin quantization, pairwise features, and a trained `240 -> 14` readout.
+- Stream replay is synthetic/offline, but it now steps row by row through stitched captures and supports result-ledger reporting.
+- Daft/Python dataset tooling is offline only: it materializes views and reports from Rust outputs, while Rust owns model math and inference.
 - The present trainers are intentionally simple and CPU-only; they are scaffolding steps before more serious training infrastructure.
 - Training quality is now measured with a validation split and a simple baseline before we invest in end-to-end transformer backpropagation.
 - Spike-train previews are available for rate, latency, mixed encodings, accordion pattern activity, raw final SNN output activity, and gated readout decisions.

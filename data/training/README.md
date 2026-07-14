@@ -28,6 +28,14 @@ total=1976 CSV files
 
 The generated CSVs are intentionally not tracked. Regenerate them whenever the synthetic matrix, probe variant count, or no-scent count changes.
 
+Dataset recipes can materialize selected views from this generated corpus without changing the Rust trainers. For example, the current peak-pair single-note recipe selects no-scent plus single-note captures:
+
+```sh
+scripts/materialize_dataset.sh recipes/peak_single_note.toml --allow-stdlib-fallback
+```
+
+That writes selected capture copies under `data/views/` and manifests under `data/manifest/`. Those generated view/manifest artifacts are ignored by git.
+
 The full set is a training/stress dataset for the SNN path, not a benchmark result by itself. The current accordion trainer can consume it directly:
 
 ```sh

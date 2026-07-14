@@ -6,6 +6,18 @@
 - Collect repeated real captures for a small set of known fragrance samples.
 - Keep the learning problem constrained to one fragrance exposure per capture.
 - Compare real captures against synthetic captures before changing the model architecture.
+- Keep the Wednesday/Thursday demo path centered on reproducible generated data, peak-pair readout, stream replay, and visible result reports.
+
+## Dataset Construction and Test Ledger
+
+- Keep dataset construction outside the Rust model runtime. Use `README-DAFT.md` as the boundary document.
+- Use recipe materialization for new training/evaluation views before adding more bespoke trainer-side directory filters.
+- Current recipe checkpoint: `recipes/peak_single_note.toml` selects no-scent plus single-note captures with `include_label_counts = [0, 1]`.
+- Current materializer checkpoint: `scripts/materialize_dataset.sh` builds `data/manifest/captures.csv`, selected view CSVs under `data/views/`, and a view manifest.
+- Current result-ledger checkpoint: `scripts/eval_peak_stream.sh` writes `data/runs/peak_stream/results.csv`; `scripts/report_peak_stream_run.sh` joins results to the manifest and writes grouped summaries.
+- Add ratio-based dataset selection: specify total sample count plus per-label-count ratios instead of only absolute `limits_per_label_count` caps.
+- Add recipe support for stream materialization so the same dataset layer can construct capture views and stitched stream inputs.
+- Extend run reports to compare multiple model/run IDs side by side when we start tuning thresholds or encoders in parallel.
 
 ## Feature Extraction
 
@@ -20,8 +32,9 @@
 - Keep the first continuous-training stream constrained to one fragrance exposure at a time with explicit no-scent gaps.
 - Use `scripts/build_snn_stream_dataset.sh` to stitch generated capture datasets into long labeled streams with balanced single-note/two-note/three-note scent buckets, an initial no-scent prelude, and random whole-capture no-scent gaps after each scent segment.
 - Use `scripts/train_snn_stream.sh` for the separate stream readout model; do not replace the capture-level accordion model with it yet.
-- Current stream scaffold walks one row at a time and trains rolling baseline-relative rate/delta spike features against sparse per-row labels.
-- Next stream-model step: decide whether to move the stream trainer from the 16-feature rolling readout to the full 64-pattern accordion state.
+- Current stream scaffold walks one row at a time, builds rolling baseline-relative rate/delta spike features, expands those features through the seeded 64-motif accordion state, and trains a sparse per-row `64 -> 14` readout.
+- Treat the current stream model as an offline replay/training experiment, not live hardware inference yet.
+- Keep the peak-pair rolling stream evaluator as the cleaner current demo path while the spike-stream model remains noisy.
 - Consider wrapping the feature extractor in a lightweight temporal model:
   - small RNN
   - small LSTM

@@ -62,7 +62,7 @@ Rust owns:
 The first implementation is intentionally narrow:
 
 ```sh
-scripts/materialize_dataset.sh recipes/peak_single_note.toml
+scripts/materialize_dataset.sh recipes/peak_single_note.toml --allow-stdlib-fallback
 ```
 
 This reads capture CSVs, builds a manifest, filters the manifest according to the recipe, and copies selected captures into a materialized view directory. Existing Rust trainers can use that directory unchanged.
@@ -70,7 +70,8 @@ This reads capture CSVs, builds a manifest, filters the manifest according to th
 For the current peak-pair model:
 
 ```sh
-scripts/train_peak_pair_recipe.sh recipes/peak_single_note.toml
+NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
+  scripts/train_peak_pair_recipe.sh recipes/peak_single_note.toml data/models/peak_pair_readout_recipe.npm 25 8
 ```
 
 That wrapper performs:
@@ -79,6 +80,35 @@ That wrapper performs:
 1. materialize dataset recipe
 2. cargo run --bin peak_train -- --data <recipe output_dir> ...
 ```
+
+## Recipe Shape
+
+The TOML recipe schema is a NoseKnows convention, not a Daft-defined schema. Daft is the execution backend for table operations; the variable names and selection rules are owned by this project.
+
+The most important current knobs are:
+
+```text
+input_dirs             capture directories to scan
+output_dir             materialized capture view
+view_manifest          selected-row manifest for the view
+include_label_counts   scent-count buckets to include
+limits_per_label_count absolute cap per scent-count bucket
+shuffle_seed           deterministic sampling order
+copy_captures          copy selected CSVs into output_dir
+```
+
+`include_label_counts` maps directly to the number of real scent labels in a capture:
+
+```text
+0  no-scent captures
+1  single-note captures
+2  two-note captures
+3  three-note captures
+```
+
+For example, `include_label_counts = [0, 1]` means no-scent plus single-note captures.
+
+`limits_per_label_count` is currently an absolute per-bucket cap. Ratio-based sampling with a separate target total is a good next refinement, but it is not implemented yet.
 
 ## Daft Dependency
 
@@ -154,7 +184,8 @@ data/runs/peak_stream/report/failure_reasons.csv
 The current analyzer is also Daft-first, with the same explicit fallback for environments where Daft is not installed:
 
 ```sh
-NOSEKNOWS_ALLOW_STDLIB_DATASET=1 scripts/report_peak_stream_run.sh
+NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
+  scripts/report_peak_stream_run.sh data/runs/peak_stream/results.csv data/manifest/captures.csv data/runs/peak_stream/report
 ```
 
 The intent is that future evaluators follow the same pattern:

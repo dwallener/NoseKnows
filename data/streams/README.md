@@ -50,3 +50,26 @@ rows:   3000
 ```
 
 The stream preview is a horizontally compact timeline, not the capture-level spike poster. It renders ground truth, ADC traces, rolling input features, the 64-motif accordion responses used by the stream readout, label evidence, and gated readout lanes over the selected row window.
+
+## Peak-Pair Stream Replay
+
+The peak-pair path has a separate stream evaluator:
+
+```sh
+scripts/eval_peak_stream.sh
+```
+
+It replays a stitched stream row by row using rolling peak sample-and-hold, 8-bin quantized sensor peaks, pairwise accordion features, and the trained peak-pair readout. By default it writes:
+
+```text
+data/runs/peak_stream/results.csv
+```
+
+Summarize that result ledger with:
+
+```sh
+NOSEKNOWS_ALLOW_STDLIB_DATASET=1 \
+  scripts/report_peak_stream_run.sh data/runs/peak_stream/results.csv data/manifest/captures.csv data/runs/peak_stream/report
+```
+
+The generated stream CSV, SVG preview, HTML viewer, and run result artifacts are ignored by git.
