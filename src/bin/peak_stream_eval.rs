@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const CHANNELS: usize = 9;
 const ACTIVE_SENSORS: usize = 8;
@@ -35,10 +37,14 @@ struct Config {
     model_path: PathBuf,
     gate_threshold: f32,
     max_examples: usize,
+    output_results: Option<PathBuf>,
+    run_id: String,
 }
 
 struct StreamRow {
     segment: String,
+    source_sample_id: String,
+    labels: [String; 3],
     target: [bool; OUTPUTS],
     adc: [f32; CHANNELS],
     elapsed_ms: u64,
@@ -46,10 +52,13 @@ struct StreamRow {
 
 struct Frame {
     segment: String,
+    source_sample_id: String,
+    labels: [String; 3],
     target: [bool; OUTPUTS],
     bins: [u8; ACTIVE_SENSORS],
     logits: [f32; OUTPUTS],
     segment_offset: usize,
+    row_index: usize,
 }
 
 #[derive(Clone)]
@@ -130,6 +139,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("Segment-level held evidence after settling:");
     print_segment_report(&frames, hold_rows, config.gate_threshold);
 
+    if let Some(output_path) = &config.output_results {
+        write_segment_results(output_path, &frames, hold_rows, &config)?;
+        println!();
+        println!("Wrote segment results to {}", output_path.display());
+    }
+
     print_examples(&frames, config.gate_threshold, config.max_examples);
     Ok(())
 }
@@ -139,6 +154,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
     let mut model_path = PathBuf::from(DEFAULT_MODEL);
     let mut gate_threshold = 0.0;
     let mut max_examples = 16;
+    let mut output_results = None;
+    let mut run_id = default_run_id();
 
     let args = env::args().skip(1).collect::<Vec<_>>();
     let mut index = 0;
@@ -166,9 +183,19 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
                     .ok_or("--examples requires a value")?
                     .parse()?;
             }
+            "--out-results" => {
+                index += 1;
+                output_results = Some(PathBuf::from(
+                    args.get(index).ok_or("--out-results requires a path")?,
+                ));
+            }
+            "--run-id" => {
+                index += 1;
+                run_id = args.get(index).ok_or("--run-id requires a value")?.clone();
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin peak_stream_eval -- [--stream data/streams/smoke_stream.csv] [--model data/models/peak_pair_readout.npm] [--gate-threshold 0] [--examples 16]"
+                    "Usage: cargo run --bin peak_stream_eval -- [--stream data/streams/smoke_stream.csv] [--model data/models/peak_pair_readout.npm] [--gate-threshold 0] [--examples 16] [--out-results data/runs/peak_stream/results.csv] [--run-id name]"
                 );
                 std::process::exit(0);
             }
@@ -182,6 +209,8 @@ fn parse_args() -> Result<Config, Box<dyn std::error::Error>> {
         model_path,
         gate_threshold,
         max_examples,
+        output_results,
+        run_id,
     })
 }
 
@@ -193,7 +222,7 @@ fn build_frames(rows: &[StreamRow], model: &PeakModel, hold_rows: usize) -> Vec<
     let mut current_segment = String::new();
     let mut segment_offset = 0_usize;
 
-    for row in rows {
+    for (row_index, row) in rows.iter().enumerate() {
         if row.segment != current_segment {
             current_segment = row.segment.clone();
             segment_offset = 0;
@@ -213,10 +242,13 @@ fn build_frames(rows: &[StreamRow], model: &PeakModel, hold_rows: usize) -> Vec<
         let features = pairwise_features(&bins);
         frames.push(Frame {
             segment: row.segment.clone(),
+            source_sample_id: row.source_sample_id.clone(),
+            labels: row.labels.clone(),
             target: row.target,
             bins,
             logits: model.predict(&features),
             segment_offset,
+            row_index,
         });
         segment_offset += 1;
     }
@@ -294,7 +326,12 @@ fn print_segment_report(frames: &[Frame], skip_segment_rows: usize, gate_thresho
             index += 1;
         }
         if let Some(summary) = summarize_segment(&frames[start..index], skip_segment_rows) {
-            let active_count = summary.target.iter().filter(|active| **active).count().min(3);
+            let active_count = summary
+                .target
+                .iter()
+                .filter(|active| **active)
+                .count()
+                .min(3);
             record_bucket(&mut buckets[active_count], &summary, gate_threshold);
             record_labels(&mut labels, &summary, gate_threshold);
         }
@@ -364,11 +401,117 @@ fn summarize_segment(frames: &[Frame], skip_segment_rows: usize) -> Option<Frame
 
     Some(Frame {
         segment: first.segment.clone(),
+        source_sample_id: first.source_sample_id.clone(),
+        labels: first.labels.clone(),
         target: first.target,
         bins,
         logits,
         segment_offset: first.segment_offset,
+        row_index: first.row_index,
     })
+}
+
+fn write_segment_results(
+    path: &Path,
+    frames: &[Frame],
+    skip_segment_rows: usize,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = fs::File::create(path)?;
+    writeln!(
+        file,
+        "run_id,model_path,stream_path,gate_threshold,settled_skip_rows,stream_segment,source_sample_id,row_start,row_end,label_count,label_1,label_2,label_3,silent,p_at_1,any_at_3,covered_labels,target_labels,passed,failure_reason,pred_1,pred_2,pred_3,score_1,score_2,score_3,bins"
+    )?;
+
+    let mut index = 0;
+    while index < frames.len() {
+        let segment = frames[index].segment.as_str();
+        let start = index;
+        while index < frames.len() && frames[index].segment == segment {
+            index += 1;
+        }
+        let segment_frames = &frames[start..index];
+        let Some(summary) = summarize_segment(segment_frames, skip_segment_rows) else {
+            continue;
+        };
+        let row_start = segment_frames
+            .first()
+            .map(|frame| frame.row_index)
+            .unwrap_or(0);
+        let row_end = segment_frames
+            .last()
+            .map(|frame| frame.row_index + 1)
+            .unwrap_or(row_start);
+        let top = top_k(&summary.logits, 3);
+        let predicted = predicted_labels(&summary.logits, config.gate_threshold);
+        let silent = predicted.is_empty();
+        let no_scent = summary.target.iter().all(|active| !*active);
+        let label_count = summary.target.iter().filter(|active| **active).count();
+        let p_at_1 = !no_scent && summary.target[top[0].0] && top[0].1 > config.gate_threshold;
+        let any_at_3 = !no_scent
+            && top
+                .iter()
+                .any(|(label, score)| *score > config.gate_threshold && summary.target[*label]);
+        let target_labels = label_count;
+        let covered_labels = (0..OUTPUTS)
+            .filter(|label| summary.target[*label] && predicted.contains(label))
+            .count();
+        let passed = if no_scent { silent } else { any_at_3 };
+        let failure_reason = if passed {
+            ""
+        } else if no_scent {
+            "false_positive"
+        } else if silent {
+            "silent"
+        } else if !any_at_3 {
+            "miss"
+        } else {
+            "failed"
+        };
+        let bins = summary
+            .bins
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join("|");
+
+        writeln!(
+            file,
+            "{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{:.6},{}",
+            csv_escape(&config.run_id),
+            csv_escape(&config.model_path.display().to_string()),
+            csv_escape(&config.stream_path.display().to_string()),
+            config.gate_threshold,
+            skip_segment_rows,
+            csv_escape(&summary.segment),
+            csv_escape(&summary.source_sample_id),
+            row_start,
+            row_end,
+            label_count,
+            csv_escape(&summary.labels[0]),
+            csv_escape(&summary.labels[1]),
+            csv_escape(&summary.labels[2]),
+            silent,
+            p_at_1,
+            any_at_3,
+            covered_labels,
+            target_labels,
+            passed,
+            csv_escape(failure_reason),
+            csv_escape(LABELS[top[0].0]),
+            csv_escape(LABELS[top[1].0]),
+            csv_escape(LABELS[top[2].0]),
+            top[0].1,
+            top[1].1,
+            top[2].1,
+            csv_escape(&bins),
+        )?;
+    }
+
+    Ok(())
 }
 
 fn record_bucket(bucket: &mut BucketMetrics, frame: &Frame, gate_threshold: f32) {
@@ -609,6 +752,10 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
         .iter()
         .position(|field| field == "stream_segment")
         .or_else(|| header_fields.iter().position(|field| field == "sample_id"));
+    let source_sample_index = header_fields
+        .iter()
+        .position(|field| field == "source_sample_id")
+        .or_else(|| header_fields.iter().position(|field| field == "sample_id"));
     let adc_indexes = [
         index("adc0")?,
         index("adc1")?,
@@ -653,6 +800,11 @@ fn load_stream(path: &Path) -> Result<Vec<StreamRow>, Box<dyn std::error::Error>
                 .and_then(|index| fields.get(index))
                 .cloned()
                 .unwrap_or_else(|| format!("row_{:010}", rows.len())),
+            source_sample_id: source_sample_index
+                .and_then(|index| fields.get(index))
+                .cloned()
+                .unwrap_or_else(|| fields.first().cloned().unwrap_or_default()),
+            labels,
             target,
             adc,
             elapsed_ms: fields[elapsed_index].parse::<u64>().unwrap_or(0),
@@ -694,6 +846,22 @@ fn percentage(numerator: usize, denominator: usize) -> f32 {
         0.0
     } else {
         numerator as f32 * 100.0 / denominator as f32
+    }
+}
+
+fn default_run_id() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    format!("peak_stream_{seconds}")
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
     }
 }
 

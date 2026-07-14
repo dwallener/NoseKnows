@@ -1,0 +1,17 @@
+name = "peak_single_note"
+description = "No-scent plus single-note captures for the peak-pair readout."
+
+inputs = ["data/training/snn_comprehensive"]
+output_dir = "data/views/peak_single_note"
+manifest_path = "data/manifest/captures.csv"
+view_manifest_path = "data/views/peak_single_note_manifest.csv"
+
+include_label_counts = [0, 1]
+exclude_prefixes = ["designer_"]
+copy_csv = true
+shuffle = false
+seed = 20260713
+
+[limits_per_label_count]
+"0" = 100
+"1" = 1000000

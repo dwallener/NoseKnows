@@ -8,6 +8,8 @@
 .vscode/
 *.swp
 *.swo
+__pycache__/
+*.pyc
 
 # Local runtime logs
 *.log
@@ -19,6 +21,10 @@
 !/data/selftest/README.md
 /data/training/**/*.csv
 !/data/training/README.md
+/data/manifest/**/*.csv
+/data/views/**/*.csv
+/data/runs/**/*.csv
+/data/runs/**/*.md
 /data/streams/**/*.csv
 /data/streams/**/*.svg
 /data/streams/**/*.html
