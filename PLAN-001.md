@@ -89,7 +89,7 @@ The first implementation can be synthetic only. Hardware serial input should lat
 
 The live system must support a headless run mode.
 
-`run-headless` should execute the same injector/materializer/model loop without opening or serving the scrolling viewer. It should still write all normal artifacts:
+`scripts/run_headless_live.sh` executes the same injector/materializer/model loop without opening or serving the scrolling viewer. It still writes all normal artifacts:
 
 ```text
 data/live/input_frames.csv
@@ -187,12 +187,12 @@ The live injector can therefore build on Daft without compromising the model bou
 
 ## Near-Term Implementation Steps
 
-1. Add a `data/live/` contract and ignore generated live artifacts.
-2. Define an injector-state schema for active notes, intensity, duration, and seed.
-3. Add a Daft/Python chunk materializer that appends ADC-like frame chunks from injector state.
-4. Refactor peak-pair replay into a reusable Rust `step(frame)` runtime.
-5. Add a Rust live runner that consumes frame chunks and appends result rows.
-6. Add `run-headless` so the live runner can execute without the viewer.
+1. Add a `data/live/` contract and ignore generated live artifacts. Done.
+2. Define an injector-state schema for active notes, intensity, duration, and seed. Done for the first JSON sequence schema.
+3. Add a Daft/Python chunk materializer that appends ADC-like frame chunks from injector state. Done as `tools/live/inject_chunks.py`.
+4. Refactor peak-pair replay into a reusable Rust `step(frame)` runtime. Done as `noseknows::peak::PeakRuntime`.
+5. Add a Rust live runner that consumes frame chunks and appends result rows. Done as `cargo run --bin live_headless`.
+6. Add `run-headless` so the live runner can execute without the viewer. Done as `scripts/run_headless_live.sh`.
 7. Add a compact scrolling viewer over the live result rows.
 8. Keep `CsvReplaySource` and `SyntheticInjectorSource` working before adding `SerialEsp32Source`.
 

@@ -45,6 +45,7 @@ Daft/Python owns:
 - split assignment
 - joining metadata
 - feature/materialized dataset construction
+- live synthetic input orchestration
 - copying or writing artifacts for downstream use
 - inference-result ledger analysis and reporting
 
@@ -53,9 +54,43 @@ Rust owns:
 - model math
 - training loops
 - inference
+- live frame-by-frame model stepping
 - embedded/exportable representations
 - evaluator/viewer logic
 - writing plain inference result artifacts
+
+## Live Input Orchestration
+
+The live path follows the same boundary. Python/Daft-side code materializes ADC-like input frames; Rust consumes those frames one at a time.
+
+Run the first headless live smoke path with:
+
+```sh
+scripts/run_headless_live.sh
+```
+
+This creates or reads:
+
+```text
+data/live/injector_state.json
+```
+
+Then writes:
+
+```text
+data/live/input_frames.csv
+data/live/input_events.csv
+data/live/model_results.csv
+data/live/events.csv
+```
+
+The current input orchestrator is:
+
+```text
+tools/live/inject_chunks.py
+```
+
+It is deliberately input-only. It does not load model files or compute fragrance predictions.
 
 ## Current Experiment
 
