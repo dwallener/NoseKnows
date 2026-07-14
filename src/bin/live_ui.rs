@@ -11,6 +11,9 @@ const DEFAULT_INPUT_EVENTS: &str = "data/live/input_events.csv";
 const DEFAULT_RESULTS: &str = "data/live/model_results.csv";
 const DEFAULT_EVENTS: &str = "data/live/events.csv";
 const DEFAULT_MODEL: &str = "data/models/peak_pair_readout.npm";
+const DEFAULT_GRID_RESULTS: &str = "data/live/grid_model_results.csv";
+const DEFAULT_GRID_EVENTS: &str = "data/live/grid_events.csv";
+const DEFAULT_GRID_MODEL: &str = "data/models/grid8_readout.ngm";
 const MAX_BODY_BYTES: usize = 128 * 1024;
 
 struct Config {
@@ -20,6 +23,9 @@ struct Config {
     results_path: PathBuf,
     events_path: PathBuf,
     model_path: PathBuf,
+    grid_results_path: PathBuf,
+    grid_events_path: PathBuf,
+    grid_model_path: PathBuf,
 }
 
 struct Request {
@@ -54,6 +60,9 @@ fn parse_args() -> Config {
     let mut results_path = PathBuf::from(DEFAULT_RESULTS);
     let mut events_path = PathBuf::from(DEFAULT_EVENTS);
     let mut model_path = PathBuf::from(DEFAULT_MODEL);
+    let mut grid_results_path = PathBuf::from(DEFAULT_GRID_RESULTS);
+    let mut grid_events_path = PathBuf::from(DEFAULT_GRID_EVENTS);
+    let mut grid_model_path = PathBuf::from(DEFAULT_GRID_MODEL);
 
     let args = env::args().skip(1).collect::<Vec<_>>();
     let mut index = 0;
@@ -84,9 +93,24 @@ fn parse_args() -> Config {
                 index += 1;
                 model_path = PathBuf::from(args.get(index).expect("--model requires a path"));
             }
+            "--grid-results" => {
+                index += 1;
+                grid_results_path =
+                    PathBuf::from(args.get(index).expect("--grid-results requires a path"));
+            }
+            "--grid-events" => {
+                index += 1;
+                grid_events_path =
+                    PathBuf::from(args.get(index).expect("--grid-events requires a path"));
+            }
+            "--grid-model" => {
+                index += 1;
+                grid_model_path =
+                    PathBuf::from(args.get(index).expect("--grid-model requires a path"));
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: cargo run --bin live_ui -- [--state data/live/injector_state.json] [--input data/live/input_frames.csv] [--input-events data/live/input_events.csv] [--results data/live/model_results.csv] [--events data/live/events.csv] [--model data/models/peak_pair_readout.npm]"
+                    "Usage: cargo run --bin live_ui -- [--state data/live/injector_state.json] [--input data/live/input_frames.csv] [--input-events data/live/input_events.csv] [--results data/live/model_results.csv] [--events data/live/events.csv] [--model data/models/peak_pair_readout.npm] [--grid-results data/live/grid_model_results.csv] [--grid-events data/live/grid_events.csv] [--grid-model data/models/grid8_readout.ngm]"
                 );
                 std::process::exit(0);
             }
@@ -105,6 +129,9 @@ fn parse_args() -> Config {
         results_path,
         events_path,
         model_path,
+        grid_results_path,
+        grid_events_path,
+        grid_model_path,
     }
 }
 
@@ -165,10 +192,20 @@ fn handle_connection(mut stream: TcpStream, config: &Config) -> std::io::Result<
             }
             respond_command(&mut stream, run_headless(config))
         }
+        ("POST", "/api/run-grid8") => {
+            let materialized = run_materializer(config);
+            if !materialized.status.success() {
+                return respond_command(&mut stream, materialized);
+            }
+            respond_command(&mut stream, run_grid8_headless(config))
+        }
+        ("POST", "/api/train-grid8") => respond_command(&mut stream, train_grid8(config)),
         ("GET", "/api/input-frames.csv") => respond_file(&mut stream, &config.input_path),
         ("GET", "/api/input-events.csv") => respond_file(&mut stream, &config.input_events_path),
         ("GET", "/api/results.csv") => respond_file(&mut stream, &config.results_path),
         ("GET", "/api/events.csv") => respond_file(&mut stream, &config.events_path),
+        ("GET", "/api/grid-results.csv") => respond_file(&mut stream, &config.grid_results_path),
+        ("GET", "/api/grid-events.csv") => respond_file(&mut stream, &config.grid_events_path),
         _ => respond(
             &mut stream,
             "404 Not Found",
@@ -309,6 +346,48 @@ fn run_headless(config: &Config) -> std::process::Output {
             &config.events_path.display().to_string(),
             "--run-id",
             "live_ui",
+        ])
+        .output()
+        .unwrap_or_else(command_error)
+}
+
+fn run_grid8_headless(config: &Config) -> std::process::Output {
+    Command::new("cargo")
+        .args([
+            "run",
+            "--bin",
+            "grid_live_headless",
+            "--",
+            "--input",
+            &config.input_path.display().to_string(),
+            "--model",
+            &config.grid_model_path.display().to_string(),
+            "--out-results",
+            &config.grid_results_path.display().to_string(),
+            "--out-events",
+            &config.grid_events_path.display().to_string(),
+            "--run-id",
+            "live_ui_grid8",
+        ])
+        .output()
+        .unwrap_or_else(command_error)
+}
+
+fn train_grid8(config: &Config) -> std::process::Output {
+    Command::new("cargo")
+        .args([
+            "run",
+            "--bin",
+            "grid_train",
+            "--",
+            "--data",
+            "data/views/peak_single_note",
+            "--out",
+            &config.grid_model_path.display().to_string(),
+            "--epochs",
+            "250",
+            "--lookback-secs",
+            "8",
         ])
         .output()
         .unwrap_or_else(command_error)
@@ -470,6 +549,11 @@ const APP_HTML: &str = r##"<!doctype html>
       font: inherit;
       background: white;
     }
+    .toolbar select {
+      width: 146px;
+      height: 36px;
+      font-weight: 700;
+    }
     .row {
       display: grid;
       grid-template-columns: 1fr 84px 84px;
@@ -624,6 +708,11 @@ const APP_HTML: &str = r##"<!doctype html>
       <div class="sub">Daft/Python input orchestration, Rust model execution</div>
     </div>
     <div class="toolbar">
+      <select id="model-kind" title="Headless model">
+        <option value="peak">Peak-pair</option>
+        <option value="grid8">Grid8 rolling</option>
+      </select>
+      <button id="train-grid8">Train Grid8</button>
       <button id="save">Save State</button>
       <button id="materialize">Materialize</button>
       <button id="run" class="primary">Run Headless</button>
@@ -744,6 +833,14 @@ async function saveState() {
   logJson(await response.json());
 }
 
+function selectedModelKind() {
+  return document.getElementById('model-kind').value;
+}
+
+function selectedModelName() {
+  return selectedModelKind() === 'grid8' ? 'Grid8' : 'Peak-pair';
+}
+
 async function postAction(path, loadModelResults = true) {
   setBusy(true);
   try {
@@ -774,13 +871,15 @@ function logJson(json) {
 }
 
 async function loadResults() {
+  const kind = selectedModelKind();
+  const resultsPath = kind === 'grid8' ? '/api/grid-results.csv' : '/api/results.csv';
   const [resultsText, inputEventsText] = await Promise.all([
-    fetch('/api/results.csv').then(response => response.text()),
+    fetch(resultsPath).then(response => response.text()),
     fetch('/api/input-events.csv').then(response => response.text())
   ]);
   const results = parseCsv(resultsText);
   const inputEvents = parseCsv(inputEventsText);
-  renderTimeline(results, inputEvents, results.length, 'Model');
+  renderTimeline(results, inputEvents, results.length, `Model: ${selectedModelName()}`);
 }
 
 async function loadInputPreview() {
@@ -799,11 +898,12 @@ function renderTimeline(results, inputEvents, frameCount, mode = 'Input') {
   document.getElementById('view-mode').textContent = mode;
   document.getElementById('frames').textContent = frameCount;
   document.getElementById('segments').textContent = inputEvents.length;
-  document.getElementById('emitted').textContent = mode === 'Model' ? results.filter(row => row.silent === 'false').length : '—';
-  document.getElementById('silent').textContent = mode === 'Model' ? results.filter(row => row.silent === 'true').length : '—';
+  const modelView = mode.startsWith('Model');
+  document.getElementById('emitted').textContent = modelView ? results.filter(row => row.silent === 'false').length : '—';
+  document.getElementById('silent').textContent = modelView ? results.filter(row => row.silent === 'true').length : '—';
   document.getElementById('timeline-note').textContent =
-    mode === 'Model'
-      ? 'Model output from the latest headless run.'
+    mode.startsWith('Model')
+      ? `${mode} output from the latest headless run.`
       : mode === 'Unsaved'
         ? 'State changed. Save and materialize to refresh the input preview.'
         : 'Input preview only. Click Run Headless to generate model output lanes.';
@@ -925,7 +1025,11 @@ document.getElementById('save').onclick = async () => {
   renderTimeline([], [], 0, 'Unsaved');
 };
 document.getElementById('materialize').onclick = () => postAction('/api/materialize', false);
-document.getElementById('run').onclick = () => postAction('/api/run-headless');
+document.getElementById('run').onclick = () => {
+  const path = selectedModelKind() === 'grid8' ? '/api/run-grid8' : '/api/run-headless';
+  postAction(path);
+};
+document.getElementById('train-grid8').onclick = () => postAction('/api/train-grid8', false);
 document.getElementById('play').onclick = togglePlay;
 
 initNotes();

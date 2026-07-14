@@ -16,6 +16,13 @@ scripts/live_ui.sh
 
 It serves a small browser UI for editing injector state, materializing input frames, running the headless Rust model, and viewing the generated result timeline. The UI does not contain model math; it is a consumer/controller around the same files used by the headless path.
 
+The UI can run either current live readout:
+
+- `Peak-pair`: the earlier sample-and-hold peak/pair model.
+- `Grid8 rolling`: the `8 active sensors x 8 one-second lookback buckets` model.
+
+Use the model selector in the header before clicking `Run Headless`. `Train Grid8` retrains the rolling-grid readout from the current no-scent/single-note materialized view.
+
 The default run:
 
 1. Reads or creates `data/live/injector_state.json`.
@@ -25,6 +32,28 @@ The default run:
 
 The model remains Rust-only. The Python side owns input orchestration and writes plain frame CSVs.
 
+## Grid8 Experiment
+
+The first rolling-grid experiment represents live state as:
+
+```text
+8 active sensors x 8 one-second lookback buckets
+```
+
+Train the no-scent/single-note grid readout with:
+
+```sh
+scripts/train_grid8.sh
+```
+
+Run the same live input sequence through the grid model with:
+
+```sh
+scripts/run_headless_live_grid8.sh
+```
+
+This path is intended to test sparse rolling readout behavior. Most one-second grid windows should remain silent; labels should appear only once enough recent sensor history has accumulated. Because the rolling grid keeps eight seconds of memory, post-segment carryover is expected unless the evaluator adds an explicit transition/grace policy.
+
 Default generated artifacts:
 
 ```text
@@ -33,4 +62,6 @@ data/live/input_frames.csv
 data/live/input_events.csv
 data/live/model_results.csv
 data/live/events.csv
+data/live/grid_model_results.csv
+data/live/grid_events.csv
 ```

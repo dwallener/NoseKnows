@@ -25,6 +25,8 @@
 - Add first-difference and rolling-slope features.
 - Add per-channel summaries: peak, time-to-peak, decay rate, tail level, range, and area under curve.
 - Compare absolute, normalized, derivative, and combined feature sets on real repeated captures.
+- Evaluate the rolling `8 sensors x 8 one-second lookback` grid representation for no-scent plus single-note detection.
+- Decide how live truth should treat carryover windows after an injection ends: strict no-scent immediately, or a transition/grace interval while the rolling grid still contains scent evidence.
 
 ## Continuous Classification Research
 
