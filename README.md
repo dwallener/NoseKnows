@@ -1,6 +1,6 @@
 # NoseKnows
 
-NoseKnows is an early prototype for a 9-channel gas-sensor scent classifier. Codex was heavily used in creating specifications, keeping documentation current, writing the Rust internals and the Python/UX wrapper.
+NoseKnows is an early prototype for a 9-channel gas-sensor scent classifier. Codex 5.6 was heavily used in creating specifications, keeping documentation current, writing the Rust internals and the Python/UX wrapper.
 
 ![NoseKnows live injector showing Grid8 rolling readout, dominant scent row, and 14 fragrance-label output lanes](assets/readme/noseknows-live-injector-grid8-readout.png)
 
